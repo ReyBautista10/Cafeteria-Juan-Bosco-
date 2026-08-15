@@ -342,34 +342,55 @@ function renderUsuarioModificar() {
           <option value="Cajero" ${u.puesto === "Cajero" ? "selected" : ""}>Cajero</option>
           <option value="Administrador" ${u.puesto === "Administrador" ? "selected" : ""}>Administrador</option>
         </select>
-        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Nueva contraseña (opcional)</label>
-        <input id="modPassword" type="password" placeholder="Dejar en blanco para no cambiarla" class="w-full px-3 py-2 rounded-lg text-sm mb-2 outline-none border" style="border-color:#E1DED5" />
-        <div id="modChecklist"></div>
         <div id="modMsg"></div>
-        <button id="modGuardar" class="w-full py-2 rounded-lg text-sm font-bold" style="background:#1C2B3A; color:#F4F1EB">Guardar cambios</button>
-      </div>`;
+        <button id="modGuardar" class="w-full py-2 rounded-lg text-sm font-bold" style="background:#1C2B3A; color:#F4F1EB">Guardar datos</button>
+      </div>
 
-    const pw = document.getElementById("modPassword");
-    pw.addEventListener("input", () => {
-      document.getElementById("modChecklist").innerHTML = pw.value ? passwordChecklistHtml(pw.value) : "";
-    });
+      <div class="max-w-sm p-5 rounded-xl mt-4 bg-white border" style="border-color:#E1DED5">
+        <p class="text-xs font-semibold mb-3" style="color:#6C7B8A">Cambiar contraseña (independiente de los datos de arriba)</p>
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Nueva contraseña</label>
+        <input id="modPassword" type="password" class="w-full px-3 py-2 rounded-lg text-sm mb-2 outline-none border" style="border-color:#E1DED5" />
+        <div id="modPassChecklist"></div>
+        <div id="modPassMsg"></div>
+        <button id="modPassGuardar" class="w-full py-2 rounded-lg text-sm font-bold" style="background:#B8862E; color:#fff">Cambiar contraseña</button>
+      </div>`;
 
     document.getElementById("modGuardar").addEventListener("click", async () => {
       const nom_usuario = document.getElementById("modNombre").value;
       const puesto = document.getElementById("modPuesto").value;
-      const password = pw.value;
       const msg = document.getElementById("modMsg");
       msg.innerHTML = "";
-      if (password && !PASSWORD_RULES.every(r => r.test(password))) {
-        msg.innerHTML = `<div class="text-xs mb-3 p-2 rounded-lg" style="background:#F5E4E1; color:#B5453A">La nueva contraseña no cumple los requisitos.</div>`;
-        return;
-      }
-      const { error } = await sb.rpc("usuarios_modificar", { p_id: u.id, p_nom_usuario: nom_usuario, p_puesto: puesto, p_password: password || null });
+      const { error } = await sb.rpc("usuarios_modificar", { p_id: u.id, p_nom_usuario: nom_usuario, p_puesto: puesto, p_password: null });
       if (error) {
         msg.innerHTML = `<div class="text-xs mb-3 p-2 rounded-lg" style="background:#F5E4E1; color:#B5453A">${error.message}</div>`;
         return;
       }
-      msg.innerHTML = `<div class="text-xs mb-3 p-2 rounded-lg" style="background:#E6F0EA; color:#3F7A5E">Cambios guardados correctamente.</div>`;
+      u.nom_usuario = nom_usuario;
+      u.puesto = puesto;
+      msg.innerHTML = `<div class="text-xs mb-3 p-2 rounded-lg" style="background:#E6F0EA; color:#3F7A5E">Datos guardados correctamente.</div>`;
+    });
+
+    const pw = document.getElementById("modPassword");
+    pw.addEventListener("input", () => {
+      document.getElementById("modPassChecklist").innerHTML = pw.value ? passwordChecklistHtml(pw.value) : "";
+    });
+
+    document.getElementById("modPassGuardar").addEventListener("click", async () => {
+      const password = pw.value;
+      const msg = document.getElementById("modPassMsg");
+      msg.innerHTML = "";
+      if (!password || !PASSWORD_RULES.every(r => r.test(password))) {
+        msg.innerHTML = `<div class="text-xs mb-3 p-2 rounded-lg" style="background:#F5E4E1; color:#B5453A">La contraseña no cumple los requisitos.</div>`;
+        return;
+      }
+      const { error } = await sb.rpc("usuarios_modificar", { p_id: u.id, p_nom_usuario: u.nom_usuario, p_puesto: u.puesto, p_password: password });
+      if (error) {
+        msg.innerHTML = `<div class="text-xs mb-3 p-2 rounded-lg" style="background:#F5E4E1; color:#B5453A">${error.message}</div>`;
+        return;
+      }
+      msg.innerHTML = `<div class="text-xs mb-3 p-2 rounded-lg" style="background:#E6F0EA; color:#3F7A5E">Contraseña actualizada correctamente.</div>`;
+      pw.value = "";
+      document.getElementById("modPassChecklist").innerHTML = "";
     });
   });
 }
