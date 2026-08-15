@@ -502,6 +502,10 @@ async function mostrarPreviewGafete(contenedor, cliente) {
     <button id="btnImprimirUno" class="mt-1 px-3 py-1.5 rounded-lg text-xs font-semibold" style="background:#B8862E; color:#fff">Descargar gafete (PDF)</button>
   </div>`;
   document.getElementById("btnImprimirUno").addEventListener("click", () => generarPdfGafetes([cliente]));
+  if (!cliente.qr_token) {
+    document.getElementById("qrPreviewMsg").textContent = "Diagnóstico: el cliente llegó sin qr_token. Datos recibidos: " + JSON.stringify(cliente);
+    return;
+  }
   try {
     await qrToCanvas(document.getElementById("qrPreview"), cliente.qr_token, { width: 140, margin: 1 });
   } catch (err) {
