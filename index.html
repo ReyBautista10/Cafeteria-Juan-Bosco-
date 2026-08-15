@@ -46,6 +46,7 @@ let state = {
   usuarioSubvista: "menu",
   buscarResultados: [],
   seleccionado: null,
+  navAbierto: true,
 };
 
 const app = document.getElementById("app");
@@ -119,7 +120,8 @@ function renderApp() {
   app.innerHTML = `
     <div class="w-full min-h-screen flex flex-col">
       <header class="flex items-center justify-between px-5 py-3" style="background:#1C2B3A; color:#F4F1EB">
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-3">
+          <button id="menuToggle" class="w-8 h-8 flex items-center justify-center rounded-lg" style="background:#28394B">☰</button>
           <span style="color:#B8862E">☕</span>
           <span class="jb-brand text-base font-semibold">Cafetería Juan Bosco</span>
         </div>
@@ -133,17 +135,22 @@ function renderApp() {
         </div>
       </header>
       <div class="flex flex-1 min-h-0">
+        ${state.navAbierto ? `
         <nav id="nav" class="w-56 shrink-0 p-3 flex flex-col gap-1 bg-white" style="border-right:1px solid #E1DED5">
           ${menuVisible.map(m => `
             <button data-id="${m.id}" class="navbtn flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-left"
               style="background:${state.seccion === m.id ? "#1C2B3A" : "transparent"}; color:${state.seccion === m.id ? "#F4F1EB" : "#1C2B3A"}">
               ${m.label}
             </button>`).join("")}
-        </nav>
+        </nav>` : ""}
         <main id="main" class="flex-1 overflow-y-auto p-5"></main>
       </div>
     </div>`;
 
+  document.getElementById("menuToggle").addEventListener("click", () => {
+    state.navAbierto = !state.navAbierto;
+    renderApp();
+  });
   document.getElementById("logoutBtn").addEventListener("click", () => {
     state.usuario = null; state.seccion = null; render();
   });
@@ -151,7 +158,8 @@ function renderApp() {
     btn.addEventListener("click", () => {
       state.seccion = btn.dataset.id;
       state.usuarioSubvista = "menu";
-      render();
+      state.navAbierto = false;
+      renderApp();
     });
   });
 
