@@ -37,6 +37,7 @@ const MENU = [
   { id: "venta_general", label: "Venta General", roles: ["Administrador", "Cajero"] },
   { id: "usuario", label: "Usuario", roles: ["Administrador"] },
   { id: "cliente", label: "Cliente", roles: ["Administrador"] },
+  { id: "guisados", label: "Guisados", roles: ["Administrador"] },
   { id: "ordenes_receso", label: "Ordenes Receso", roles: ["Administrador"] },
   { id: "reportes", label: "Reportes", roles: ["Administrador"] },
   { id: "inventario", label: "Inventario", roles: ["Administrador"] },
@@ -183,6 +184,7 @@ function renderSeccion() {
   }
   if (state.seccion === "usuario") return renderUsuario(main);
   if (state.seccion === "cliente") return renderCliente(main);
+  if (state.seccion === "guisados") return renderGuisados(main);
   const label = MENU.find(m => m.id === state.seccion)?.label;
   main.innerHTML = `<div class="h-full flex flex-col items-center justify-center text-center" style="color:#6C7B8A">
     <p class="text-sm font-semibold" style="color:#1C2B3A">${label}</p>
@@ -647,6 +649,7 @@ function renderClienteBaja() {
       if (error) { document.getElementById("cBajaModalMsg").innerHTML = errBox(error.message); return; }
       document.getElementById("cBajaModal").innerHTML = "";
       document.getElementById("cBajaMsg").innerHTML = `<p class="text-xs" style="color:#3F7A5E">✓ Cliente eliminado correctamente.</p>`;
+      setTimeout(() => { state.usuarioSubvista = "menu"; renderSeccion(); }, 1100);
     });
   });
 }
@@ -682,6 +685,7 @@ function renderClienteModificar() {
       const { error } = await sb.rpc("clientes_modificar", { p_id: c.id, p_nombre_cliente: nombre, p_telefono: telefono });
       if (error) return msg.innerHTML = errBox(error.message);
       msg.innerHTML = okBox("Cambios guardados correctamente.");
+      setTimeout(() => { state.usuarioSubvista = "menu"; renderSeccion(); }, 1100);
     });
   });
 }
@@ -711,6 +715,378 @@ function renderClienteGafetes() {
     } else {
       acciones.innerHTML = "";
     }
+  });
+}
+
+// ============================================================
+// Módulo Guisados / Complementos / Recetas
+// ============================================================
+
+const CATEGORIAS_GUISADO = ["Pollo", "Puerco", "Res", "Vegetariano", "Otro"];
+const UNIDADES = ["kg", "gr", "l", "ml", "pza"];
+
+function renderGuisados(main) {
+  if (!state.guisadosArea) state.guisadosArea = "menu";
+  if (state.guisadosArea === "menu") {
+    main.innerHTML = `<h2 class="text-lg font-bold mb-4" style="color:#1C2B3A">Guisados</h2>
+      <div class="flex gap-3 flex-wrap">
+        <button class="gaArea flex flex-col items-center gap-2 px-6 py-5 rounded-xl w-32 bg-white border" data-a="guisados" style="border-color:#E1DED5"><span style="font-size:22px">🍲</span><span class="text-sm font-semibold" style="color:#1C2B3A">Guisados</span></button>
+        <button class="gaArea flex flex-col items-center gap-2 px-6 py-5 rounded-xl w-32 bg-white border" data-a="complementos" style="border-color:#E1DED5"><span style="font-size:22px">🥗</span><span class="text-sm font-semibold" style="color:#1C2B3A">Complementos</span></button>
+      </div>`;
+    document.querySelectorAll(".gaArea").forEach(b => b.addEventListener("click", () => { state.guisadosArea = b.dataset.a; state.usuarioSubvista = "menu"; renderSeccion(); }));
+    return;
+  }
+
+  let html = `<button id="volverGuisadosArea" class="text-xs font-semibold mb-3 block" style="color:#B8862E">← Regresar</button>`;
+  html += `<h2 class="text-lg font-bold mb-4" style="color:#1C2B3A">${state.guisadosArea === "guisados" ? "Guisados" : "Complementos"}</h2>`;
+  if (state.usuarioSubvista === "menu") {
+    html += `<div class="flex gap-3 flex-wrap">
+      <button class="gSubtn flex flex-col items-center gap-2 px-6 py-5 rounded-xl w-32 bg-white border" data-v="alta" style="border-color:#E1DED5"><span style="font-size:22px">+</span><span class="text-sm font-semibold" style="color:#1C2B3A">Alta</span></button>
+      <button class="gSubtn flex flex-col items-center gap-2 px-6 py-5 rounded-xl w-32 bg-white border" data-v="baja" style="border-color:#E1DED5"><span style="font-size:22px">🗑</span><span class="text-sm font-semibold" style="color:#1C2B3A">Baja</span></button>
+      <button class="gSubtn flex flex-col items-center gap-2 px-6 py-5 rounded-xl w-32 bg-white border" data-v="modificar" style="border-color:#E1DED5"><span style="font-size:22px">✎</span><span class="text-sm font-semibold" style="color:#1C2B3A">Modificación</span></button>
+    </div>`;
+    main.innerHTML = html;
+    document.getElementById("volverGuisadosArea").addEventListener("click", () => { state.guisadosArea = "menu"; renderSeccion(); });
+    document.querySelectorAll(".gSubtn").forEach(b => b.addEventListener("click", () => { state.usuarioSubvista = b.dataset.v; renderSeccion(); }));
+    return;
+  }
+
+  html += `<button id="volverGSub" class="text-xs font-semibold mb-4" style="color:#B8862E">← Regresar al menú de ${state.guisadosArea === "guisados" ? "Guisados" : "Complementos"}</button><div id="gContenido"></div>`;
+  main.innerHTML = html;
+  document.getElementById("volverGuisadosArea").addEventListener("click", () => { state.guisadosArea = "menu"; renderSeccion(); });
+  document.getElementById("volverGSub").addEventListener("click", () => { state.usuarioSubvista = "menu"; renderSeccion(); });
+
+  if (state.guisadosArea === "complementos") {
+    if (state.usuarioSubvista === "alta") renderComplementoAlta();
+    if (state.usuarioSubvista === "baja") renderComplementoBaja();
+    if (state.usuarioSubvista === "modificar") renderComplementoModificar();
+  } else {
+    if (state.usuarioSubvista === "alta") renderGuisadoAlta();
+    if (state.usuarioSubvista === "baja") renderGuisadoBaja();
+    if (state.usuarioSubvista === "modificar") renderGuisadoModificar();
+  }
+}
+
+// ---------- Complementos ----------
+
+function renderComplementoAlta() {
+  const cont = document.getElementById("gContenido");
+  cont.innerHTML = `
+    <div class="max-w-sm p-5 rounded-xl bg-white border" style="border-color:#E1DED5">
+      <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Nombre del complemento</label>
+      <input id="coNombre" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
+      <div id="coMsg"></div>
+      <button id="coGuardar" class="w-full py-2 rounded-lg text-sm font-bold" style="background:#1C2B3A; color:#F4F1EB">Guardar</button>
+    </div>`;
+  document.getElementById("coGuardar").addEventListener("click", async () => {
+    const nombre = document.getElementById("coNombre").value;
+    const msg = document.getElementById("coMsg");
+    msg.innerHTML = "";
+    if (!nombre.trim()) return msg.innerHTML = errBox("Escribe el nombre del complemento.");
+    const { data, error } = await sb.rpc("complementos_alta", { p_nombre_complemento: nombre });
+    if (error) return msg.innerHTML = errBox(error.message);
+    msg.innerHTML = okBox(`Complemento creado: ${data[0].id_complemento}`);
+    document.getElementById("coNombre").value = "";
+  });
+}
+
+function renderBuscadorGenerico(placeholder) {
+  return `
+    <div class="max-w-md">
+      <div class="flex items-center gap-2 px-3 py-2 rounded-lg mb-3 bg-white border" style="border-color:#E1DED5">
+        <input id="gBuscarInput" placeholder="${placeholder}" class="bg-transparent outline-none text-sm flex-1" style="color:#1C2B3A" />
+      </div>
+      <div id="gBuscarResultados" class="rounded-xl overflow-hidden border" style="border-color:#E1DED5"></div>
+    </div>`;
+}
+
+function activarBuscadorGenerico(rpcName, renderFila) {
+  const input = document.getElementById("gBuscarInput");
+  const cont = document.getElementById("gBuscarResultados");
+  let timer = null;
+  let onFilaClick = () => {};
+  input.addEventListener("input", () => {
+    clearTimeout(timer);
+    const criterio = input.value.trim();
+    if (!criterio) { cont.innerHTML = ""; return; }
+    timer = setTimeout(async () => {
+      const { data, error } = await sb.rpc(rpcName, { p_criterio: criterio });
+      if (error) { cont.innerHTML = `<div class="p-3 text-xs" style="color:#B5453A">${error.message}</div>`; return; }
+      const lista = data || [];
+      cont.innerHTML = lista.map((r, i) => renderFila(r, i)).join("");
+      lista.forEach((r, i) => {
+        const row = cont.querySelector(`[data-idx="${i}"]`);
+        if (row) row.addEventListener("click", () => onFilaClick(r));
+      });
+    }, 300);
+  });
+  return { setOnFilaClick: (fn) => { onFilaClick = fn; } };
+}
+
+function renderComplementoBaja() {
+  const cont = document.getElementById("gContenido");
+  cont.innerHTML = renderBuscadorGenerico("Buscar complemento por nombre o folio…") + `<div id="gMsg" class="mt-3"></div><div id="gModal"></div>`;
+  const ctrl = activarBuscadorGenerico("complementos_buscar", (r, i) => `
+    <button data-idx="${i}" class="w-full text-left px-4 py-2.5 text-sm bg-white" style="${i > 0 ? 'border-top:1px solid #E1DED5' : ''}">
+      <div style="color:#1C2B3A" class="font-medium">${r.nombre_complemento}</div>
+      <div style="color:#6C7B8A" class="text-xs">${r.id_complemento}</div>
+    </button>`);
+  ctrl.setOnFilaClick((r) => {
+    document.getElementById("gModal").innerHTML = `
+      <div class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(28,43,58,0.5)">
+        <div class="rounded-xl p-5 bg-white w-72">
+          <p class="text-sm mb-4" style="color:#1C2B3A">Confirme que desea eliminar el Complemento: <b>${r.nombre_complemento}</b> (${r.id_complemento})</p>
+          <div id="gModalMsg"></div>
+          <div class="flex gap-2">
+            <button id="gModalCancelar" class="flex-1 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">Cancelar</button>
+            <button id="gModalConfirmar" class="flex-1 py-2 rounded-lg text-sm font-bold" style="background:#B5453A; color:#fff">Eliminar</button>
+          </div>
+        </div>
+      </div>`;
+    document.getElementById("gModalCancelar").addEventListener("click", () => { document.getElementById("gModal").innerHTML = ""; });
+    document.getElementById("gModalConfirmar").addEventListener("click", async () => {
+      const { error } = await sb.rpc("complementos_eliminar", { p_id: r.id });
+      if (error) { document.getElementById("gModalMsg").innerHTML = errBox(error.message); return; }
+      document.getElementById("gModal").innerHTML = "";
+      document.getElementById("gMsg").innerHTML = `<p class="text-xs" style="color:#3F7A5E">✓ Complemento eliminado correctamente.</p>`;
+      setTimeout(() => { state.usuarioSubvista = "menu"; renderSeccion(); }, 1100);
+    });
+  });
+}
+
+function renderComplementoModificar() {
+  const cont = document.getElementById("gContenido");
+  cont.innerHTML = renderBuscadorGenerico("Buscar complemento por nombre o folio…") + `<div id="gForm"></div>`;
+  const ctrl = activarBuscadorGenerico("complementos_buscar", (r, i) => `
+    <button data-idx="${i}" class="w-full text-left px-4 py-2.5 text-sm bg-white" style="${i > 0 ? 'border-top:1px solid #E1DED5' : ''}">
+      <div style="color:#1C2B3A" class="font-medium">${r.nombre_complemento}</div>
+      <div style="color:#6C7B8A" class="text-xs">${r.id_complemento}</div>
+    </button>`);
+  ctrl.setOnFilaClick((r) => {
+    document.getElementById("gForm").innerHTML = `
+      <div class="max-w-sm p-5 rounded-xl mt-4 bg-white border" style="border-color:#E1DED5">
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Folio (no editable)</label>
+        <input value="${r.id_complemento}" disabled class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5; color:#6C7B8A; background:#F4F1EB" />
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Nombre</label>
+        <input id="coModNombre" value="${r.nombre_complemento}" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
+        <div id="coModMsg"></div>
+        <button id="coModGuardar" class="w-full py-2 rounded-lg text-sm font-bold" style="background:#1C2B3A; color:#F4F1EB">Guardar cambios</button>
+      </div>`;
+    document.getElementById("coModGuardar").addEventListener("click", async () => {
+      const nombre = document.getElementById("coModNombre").value;
+      const msg = document.getElementById("coModMsg");
+      const { error } = await sb.rpc("complementos_modificar", { p_id: r.id, p_nombre_complemento: nombre });
+      if (error) return msg.innerHTML = errBox(error.message);
+      msg.innerHTML = okBox("Cambios guardados correctamente.");
+      setTimeout(() => { state.usuarioSubvista = "menu"; renderSeccion(); }, 1100);
+    });
+  });
+}
+
+// ---------- Guisados ----------
+
+async function obtenerTodosComplementos() {
+  const { data } = await sb.rpc("complementos_buscar", { p_criterio: "" });
+  return data || [];
+}
+
+function checklistComplementosHtml(todos, seleccionados) {
+  if (todos.length === 0) return `<p class="text-xs" style="color:#6C7B8A">No hay complementos registrados todavía.</p>`;
+  return `<div class="flex flex-col gap-1 max-h-40 overflow-y-auto">
+    ${todos.map(c => `
+      <label class="flex items-center gap-2 text-sm" style="color:#1C2B3A">
+        <input type="checkbox" class="compChk" value="${c.id}" ${seleccionados.includes(c.id) ? "checked" : ""} />
+        ${c.nombre_complemento}
+      </label>`).join("")}
+  </div>`;
+}
+
+function renderGuisadoAlta() {
+  const cont = document.getElementById("gContenido");
+  cont.innerHTML = `<p class="text-xs" style="color:#6C7B8A">Cargando…</p>`;
+  obtenerTodosComplementos().then(todos => {
+    cont.innerHTML = `
+      <div class="max-w-sm p-5 rounded-xl bg-white border" style="border-color:#E1DED5">
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Nombre del guisado</label>
+        <input id="guNombre" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Día del calendario (1-26)</label>
+        <input id="guDia" type="number" min="1" max="26" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Categoría</label>
+        <select id="guCategoria" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5">
+          ${CATEGORIAS_GUISADO.map(c => `<option value="${c}">${c}</option>`).join("")}
+        </select>
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Costo</label>
+        <input id="guCosto" type="number" step="0.01" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Complementos compatibles</label>
+        <div class="mb-3">${checklistComplementosHtml(todos, [])}</div>
+        <div id="guMsg"></div>
+        <button id="guGuardar" class="w-full py-2 rounded-lg text-sm font-bold" style="background:#1C2B3A; color:#F4F1EB">Guardar</button>
+      </div>
+      <div id="guRecetaWrap" class="mt-4"></div>`;
+
+    document.getElementById("guGuardar").addEventListener("click", async () => {
+      const nombre = document.getElementById("guNombre").value;
+      const dia = Number(document.getElementById("guDia").value);
+      const categoria = document.getElementById("guCategoria").value;
+      const costo = Number(document.getElementById("guCosto").value);
+      const complementos = [...document.querySelectorAll(".compChk:checked")].map(c => c.value);
+      const msg = document.getElementById("guMsg");
+      msg.innerHTML = "";
+      if (!nombre.trim()) return msg.innerHTML = errBox("Escribe el nombre del guisado.");
+      if (!dia || dia < 1 || dia > 26) return msg.innerHTML = errBox("El día debe estar entre 1 y 26.");
+      if (isNaN(costo) || costo < 0) return msg.innerHTML = errBox("Escribe un costo válido.");
+
+      const { data, error } = await sb.rpc("guisados_alta", {
+        p_nombre_guisado: nombre, p_dia_guisado: dia, p_categoria_guisado: categoria,
+        p_costo_guisado: costo, p_complementos: complementos,
+      });
+      if (error) return msg.innerHTML = errBox(error.message);
+      const guisado = data[0];
+      msg.innerHTML = okBox(`Guisado creado: ${guisado.id_guisado}. Ahora agrega los ingredientes de su receta:`);
+      renderRecetaEditor(document.getElementById("guRecetaWrap"), guisado.id);
+    });
+  });
+}
+
+function renderRecetaEditor(cont, guisadoId) {
+  cont.innerHTML = `
+    <div class="max-w-sm p-5 rounded-xl bg-white border" style="border-color:#E1DED5">
+      <p class="text-xs font-semibold mb-3" style="color:#6C7B8A">Receta (ingredientes para 50 raciones)</p>
+      <div id="recetaLista" class="mb-3"></div>
+      <div class="flex gap-2 mb-2">
+        <input id="recIngrediente" placeholder="Ingrediente" class="flex-1 px-2 py-2 rounded-lg text-sm outline-none border" style="border-color:#E1DED5" />
+        <input id="recCantidad" type="number" step="0.001" placeholder="Cant." class="w-20 px-2 py-2 rounded-lg text-sm outline-none border" style="border-color:#E1DED5" />
+        <select id="recUnidad" class="px-2 py-2 rounded-lg text-sm outline-none border" style="border-color:#E1DED5">
+          ${UNIDADES.map(u => `<option value="${u}">${u}</option>`).join("")}
+        </select>
+      </div>
+      <div id="recMsg"></div>
+      <button id="recAgregar" class="w-full py-2 rounded-lg text-sm font-bold" style="background:#B8862E; color:#fff">Agregar ingrediente</button>
+    </div>`;
+
+  async function cargarLista() {
+    const { data } = await sb.rpc("receta_ingredientes_obtener", { p_guisado_id: guisadoId });
+    const lista = data || [];
+    const listaEl = document.getElementById("recetaLista");
+    listaEl.innerHTML = lista.length === 0
+      ? `<p class="text-xs" style="color:#6C7B8A">Sin ingredientes todavía.</p>`
+      : lista.map(i => `
+        <div class="flex items-center justify-between text-sm py-1" style="border-bottom:1px solid #E1DED5">
+          <span style="color:#1C2B3A">${i.ingrediente} — ${i.cantidad} ${i.unidad}</span>
+          <button class="recDel text-xs" data-id="${i.id}" style="color:#B5453A">Quitar</button>
+        </div>`).join("");
+    listaEl.querySelectorAll(".recDel").forEach(b => {
+      b.addEventListener("click", async () => {
+        await sb.rpc("receta_ingrediente_eliminar", { p_id: b.dataset.id });
+        cargarLista();
+      });
+    });
+  }
+
+  document.getElementById("recAgregar").addEventListener("click", async () => {
+    const ingrediente = document.getElementById("recIngrediente").value;
+    const cantidad = Number(document.getElementById("recCantidad").value);
+    const unidad = document.getElementById("recUnidad").value;
+    const msg = document.getElementById("recMsg");
+    msg.innerHTML = "";
+    if (!ingrediente.trim() || !cantidad || cantidad <= 0) return msg.innerHTML = errBox("Escribe el ingrediente y una cantidad válida.");
+    const { error } = await sb.rpc("receta_ingrediente_agregar", { p_guisado_id: guisadoId, p_ingrediente: ingrediente, p_cantidad: cantidad, p_unidad: unidad });
+    if (error) return msg.innerHTML = errBox(error.message);
+    document.getElementById("recIngrediente").value = "";
+    document.getElementById("recCantidad").value = "";
+    cargarLista();
+  });
+
+  cargarLista();
+}
+
+function renderGuisadoBaja() {
+  const cont = document.getElementById("gContenido");
+  cont.innerHTML = renderBuscadorGenerico("Buscar guisado por nombre o folio…") + `<div id="gMsg" class="mt-3"></div><div id="gModal"></div>`;
+  const ctrl = activarBuscadorGenerico("guisados_buscar", (r, i) => `
+    <button data-idx="${i}" class="w-full text-left px-4 py-2.5 text-sm bg-white" style="${i > 0 ? 'border-top:1px solid #E1DED5' : ''}">
+      <div style="color:#1C2B3A" class="font-medium">${r.nombre_guisado}</div>
+      <div style="color:#6C7B8A" class="text-xs">${r.id_guisado} · Día ${r.dia_guisado} · ${r.categoria_guisado}</div>
+    </button>`);
+  ctrl.setOnFilaClick((r) => {
+    document.getElementById("gModal").innerHTML = `
+      <div class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(28,43,58,0.5)">
+        <div class="rounded-xl p-5 bg-white w-72">
+          <p class="text-sm mb-4" style="color:#1C2B3A">Confirme que desea eliminar el Guisado: <b>${r.nombre_guisado}</b> (${r.id_guisado})</p>
+          <div id="gModalMsg"></div>
+          <div class="flex gap-2">
+            <button id="gModalCancelar" class="flex-1 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">Cancelar</button>
+            <button id="gModalConfirmar" class="flex-1 py-2 rounded-lg text-sm font-bold" style="background:#B5453A; color:#fff">Eliminar</button>
+          </div>
+        </div>
+      </div>`;
+    document.getElementById("gModalCancelar").addEventListener("click", () => { document.getElementById("gModal").innerHTML = ""; });
+    document.getElementById("gModalConfirmar").addEventListener("click", async () => {
+      const { error } = await sb.rpc("guisados_eliminar", { p_id: r.id });
+      if (error) { document.getElementById("gModalMsg").innerHTML = errBox(error.message); return; }
+      document.getElementById("gModal").innerHTML = "";
+      document.getElementById("gMsg").innerHTML = `<p class="text-xs" style="color:#3F7A5E">✓ Guisado eliminado correctamente.</p>`;
+      setTimeout(() => { state.usuarioSubvista = "menu"; renderSeccion(); }, 1100);
+    });
+  });
+}
+
+function renderGuisadoModificar() {
+  const cont = document.getElementById("gContenido");
+  cont.innerHTML = renderBuscadorGenerico("Buscar guisado por nombre o folio…") + `<div id="gForm"></div>`;
+  const ctrl = activarBuscadorGenerico("guisados_buscar", (r, i) => `
+    <button data-idx="${i}" class="w-full text-left px-4 py-2.5 text-sm bg-white" style="${i > 0 ? 'border-top:1px solid #E1DED5' : ''}">
+      <div style="color:#1C2B3A" class="font-medium">${r.nombre_guisado}</div>
+      <div style="color:#6C7B8A" class="text-xs">${r.id_guisado} · Día ${r.dia_guisado} · ${r.categoria_guisado}</div>
+    </button>`);
+  ctrl.setOnFilaClick(async (r) => {
+    const formCont = document.getElementById("gForm");
+    formCont.innerHTML = `<p class="text-xs" style="color:#6C7B8A">Cargando…</p>`;
+    const [todos, asignadosRes] = await Promise.all([
+      obtenerTodosComplementos(),
+      sb.rpc("guisados_complementos_obtener", { p_guisado_id: r.id }),
+    ]);
+    const asignados = (asignadosRes.data || []).map(a => a.complemento_id);
+
+    formCont.innerHTML = `
+      <div class="max-w-sm p-5 rounded-xl mt-4 bg-white border" style="border-color:#E1DED5">
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Folio (no editable)</label>
+        <input value="${r.id_guisado}" disabled class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5; color:#6C7B8A; background:#F4F1EB" />
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Nombre</label>
+        <input id="guModNombre" value="${r.nombre_guisado}" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Día del calendario (1-26)</label>
+        <input id="guModDia" type="number" min="1" max="26" value="${r.dia_guisado}" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Categoría</label>
+        <select id="guModCategoria" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5">
+          ${CATEGORIAS_GUISADO.map(c => `<option value="${c}" ${c === r.categoria_guisado ? "selected" : ""}>${c}</option>`).join("")}
+        </select>
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Costo</label>
+        <input id="guModCosto" type="number" step="0.01" value="${r.costo_guisado}" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Complementos compatibles</label>
+        <div class="mb-3">${checklistComplementosHtml(todos, asignados)}</div>
+        <div id="guModMsg"></div>
+        <button id="guModGuardar" class="w-full py-2 rounded-lg text-sm font-bold" style="background:#1C2B3A; color:#F4F1EB">Guardar cambios</button>
+      </div>
+      <div id="guModRecetaWrap" class="mt-4"></div>`;
+
+    renderRecetaEditor(document.getElementById("guModRecetaWrap"), r.id);
+
+    document.getElementById("guModGuardar").addEventListener("click", async () => {
+      const nombre = document.getElementById("guModNombre").value;
+      const dia = Number(document.getElementById("guModDia").value);
+      const categoria = document.getElementById("guModCategoria").value;
+      const costo = Number(document.getElementById("guModCosto").value);
+      const complementos = [...document.querySelectorAll(".compChk:checked")].map(c => c.value);
+      const msg = document.getElementById("guModMsg");
+      msg.innerHTML = "";
+      if (!dia || dia < 1 || dia > 26) return msg.innerHTML = errBox("El día debe estar entre 1 y 26.");
+      const { error } = await sb.rpc("guisados_modificar", {
+        p_id: r.id, p_nombre_guisado: nombre, p_dia_guisado: dia, p_categoria_guisado: categoria,
+        p_costo_guisado: costo, p_complementos: complementos,
+      });
+      if (error) return msg.innerHTML = errBox(error.message);
+      msg.innerHTML = okBox("Cambios guardados correctamente.");
+    });
   });
 }
 
