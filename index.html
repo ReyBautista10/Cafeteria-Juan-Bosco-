@@ -547,34 +547,35 @@ async function mostrarPreviewGafete(contenedor, cliente) {
 async function generarPdfGafetes(clientes) {
   try {
     const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ unit: "mm", format: [85, 54] });
-    const margen = 4;
-    const qrTam = 26;
-    const textoX = margen + qrTam + 4;
-    const textoAncho = 85 - textoX - margen;
+    const ANCHO = 70;
+    const ALTO = 100;
+    const doc = new jsPDF({ unit: "mm", format: [ANCHO, ALTO] });
+    const cx = ANCHO / 2;
 
     for (let i = 0; i < clientes.length; i++) {
       const c = clientes[i];
-      if (i > 0) doc.addPage([85, 54]);
+      if (i > 0) doc.addPage([ANCHO, ALTO]);
 
       const qrDataUrl = await qrToDataUrl(c.qr_token, { width: 300, margin: 1 });
-      doc.addImage(qrDataUrl, "PNG", margen, margen, qrTam, qrTam);
+      const qrTam = 40;
+      doc.addImage(qrDataUrl, "PNG", cx - qrTam / 2, 15, qrTam, qrTam);
+
+      let y = 15 + qrTam + 12;
 
       doc.setFont(undefined, "normal");
-      doc.setFontSize(7);
-      doc.text("Cafetería Juan Bosco", textoX, margen + 3, { maxWidth: textoAncho });
+      doc.setFontSize(11);
+      doc.text(c.id_cliente, cx, y, { align: "center" });
+      y += 9;
 
       doc.setFont(undefined, "bold");
-      doc.setFontSize(10);
-      const lineasNombre = doc.splitTextToSize(c.nombre_cliente, textoAncho).slice(0, 3);
-      let y = margen + 10;
-      lineasNombre.forEach((linea) => { doc.text(linea, textoX, y); y += 4.2; });
+      doc.setFontSize(14);
+      const lineasNombre = doc.splitTextToSize(c.nombre_cliente, ANCHO - 10);
+      doc.text(lineasNombre, cx, y, { align: "center" });
+      y += lineasNombre.length * 6 + 7;
 
       doc.setFont(undefined, "normal");
-      doc.setFontSize(9);
-      doc.text(c.id_cliente, textoX, 54 - margen - 6);
-      doc.setFontSize(7);
-      doc.text(c.nivel_cliente, textoX, 54 - margen - 2);
+      doc.setFontSize(10);
+      doc.text(c.nivel_cliente, cx, y, { align: "center" });
     }
     doc.save(clientes.length === 1 ? `gafete-${clientes[0].id_cliente}.pdf` : `gafetes-${Date.now()}.pdf`);
   } catch (err) {
