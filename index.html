@@ -477,33 +477,58 @@ function okBox(texto) {
   return `<div class="text-xs mb-3 p-2 rounded-lg" style="background:#E6F0EA; color:#3F7A5E">${texto}</div>`;
 }
 
+function qrToCanvas(canvas, texto, opciones) {
+  return new Promise((resolve, reject) => {
+    QRCode.toCanvas(canvas, texto, opciones, (err) => {
+      if (err) reject(err); else resolve();
+    });
+  });
+}
+
+function qrToDataUrl(texto, opciones) {
+  return new Promise((resolve, reject) => {
+    QRCode.toDataURL(texto, opciones, (err, url) => {
+      if (err) reject(err); else resolve(url);
+    });
+  });
+}
+
 async function mostrarPreviewGafete(contenedor, cliente) {
   contenedor.innerHTML = `<div class="flex flex-col items-center gap-2 p-3 rounded-lg mb-2" style="background:#F4F1EB">
     <canvas id="qrPreview"></canvas>
+    <div id="qrPreviewMsg" class="text-xs" style="color:#B5453A"></div>
     <div class="text-sm font-semibold" style="color:#1C2B3A">${cliente.nombre_cliente}</div>
     <div class="text-xs jb-mono" style="color:#6C7B8A">${cliente.id_cliente}</div>
     <button id="btnImprimirUno" class="mt-1 px-3 py-1.5 rounded-lg text-xs font-semibold" style="background:#B8862E; color:#fff">Descargar gafete (PDF)</button>
   </div>`;
-  await QRCode.toCanvas(document.getElementById("qrPreview"), cliente.qr_token, { width: 140, margin: 1 });
   document.getElementById("btnImprimirUno").addEventListener("click", () => generarPdfGafetes([cliente]));
+  try {
+    await qrToCanvas(document.getElementById("qrPreview"), cliente.qr_token, { width: 140, margin: 1 });
+  } catch (err) {
+    document.getElementById("qrPreviewMsg").textContent = "No se pudo dibujar la vista previa del QR: " + err.message;
+  }
 }
 
 async function generarPdfGafetes(clientes) {
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ unit: "mm", format: [85, 54] });
-  for (let i = 0; i < clientes.length; i++) {
-    const c = clientes[i];
-    if (i > 0) doc.addPage([85, 54]);
-    const qrDataUrl = await QRCode.toDataURL(c.qr_token, { width: 300, margin: 1 });
-    doc.addImage(qrDataUrl, "PNG", 6, 6, 30, 30);
-    doc.setFontSize(11);
-    doc.text("Cafetería Juan Bosco", 40, 12);
-    doc.setFontSize(13);
-    doc.text(c.nombre_cliente, 40, 22, { maxWidth: 40 });
-    doc.setFontSize(10);
-    doc.text(c.id_cliente, 40, 42);
+  try {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: "mm", format: [85, 54] });
+    for (let i = 0; i < clientes.length; i++) {
+      const c = clientes[i];
+      if (i > 0) doc.addPage([85, 54]);
+      const qrDataUrl = await qrToDataUrl(c.qr_token, { width: 300, margin: 1 });
+      doc.addImage(qrDataUrl, "PNG", 6, 6, 30, 30);
+      doc.setFontSize(11);
+      doc.text("Cafetería Juan Bosco", 40, 12);
+      doc.setFontSize(13);
+      doc.text(c.nombre_cliente, 40, 22, { maxWidth: 40 });
+      doc.setFontSize(10);
+      doc.text(c.id_cliente, 40, 42);
+    }
+    doc.save(clientes.length === 1 ? `gafete-${clientes[0].id_cliente}.pdf` : `gafetes-${Date.now()}.pdf`);
+  } catch (err) {
+    alert("No se pudo generar el PDF: " + err.message);
   }
-  doc.save(clientes.length === 1 ? `gafete-${clientes[0].id_cliente}.pdf` : `gafetes-${Date.now()}.pdf`);
 }
 
 function renderClienteBuscador() {
