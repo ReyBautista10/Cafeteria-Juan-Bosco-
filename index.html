@@ -38,9 +38,9 @@ const MENU = [
   { id: "usuario", label: "Usuario", roles: ["Administrador"] },
   { id: "cliente", label: "Cliente", roles: ["Administrador"] },
   { id: "guisados", label: "Guisados", roles: ["Administrador"] },
+  { id: "inventario", label: "Inventario", roles: ["Administrador"] },
   { id: "ordenes_receso", label: "Ordenes Receso", roles: ["Administrador"] },
   { id: "reportes", label: "Reportes", roles: ["Administrador"] },
-  { id: "inventario", label: "Inventario", roles: ["Administrador"] },
 ];
 
 let state = {
@@ -185,6 +185,7 @@ function renderSeccion() {
   if (state.seccion === "usuario") return renderUsuario(main);
   if (state.seccion === "cliente") return renderCliente(main);
   if (state.seccion === "guisados") return renderGuisados(main);
+  if (state.seccion === "inventario") return renderInventario(main);
   const label = MENU.find(m => m.id === state.seccion)?.label;
   main.innerHTML = `<div class="h-full flex flex-col items-center justify-center text-center" style="color:#6C7B8A">
     <p class="text-sm font-semibold" style="color:#1C2B3A">${label}</p>
@@ -1086,11 +1087,184 @@ function renderGuisadoModificar() {
       });
       if (error) return msg.innerHTML = errBox(error.message);
       msg.innerHTML = okBox("Cambios guardados correctamente.");
+      setTimeout(() => { state.usuarioSubvista = "menu"; renderSeccion(); }, 1100);
     });
   });
 }
 
 render();
+// ============================================================
+// Módulo Inventario / Productos
+// ============================================================
+
+const CATEGORIAS_PRODUCTO = ["Bebida", "Botana", "Alimento"];
+
+function renderInventario(main) {
+  let html = `<h2 class="text-lg font-bold mb-4" style="color:#1C2B3A">Inventario</h2>`;
+  if (state.usuarioSubvista === "menu") {
+    html += `<div class="flex gap-3 flex-wrap">
+      <button class="inSubtn flex flex-col items-center gap-2 px-6 py-5 rounded-xl w-32 bg-white border" data-v="alta" style="border-color:#E1DED5"><span style="font-size:22px">+</span><span class="text-sm font-semibold" style="color:#1C2B3A">Alta</span></button>
+      <button class="inSubtn flex flex-col items-center gap-2 px-6 py-5 rounded-xl w-32 bg-white border" data-v="baja" style="border-color:#E1DED5"><span style="font-size:22px">🗑</span><span class="text-sm font-semibold" style="color:#1C2B3A">Baja</span></button>
+      <button class="inSubtn flex flex-col items-center gap-2 px-6 py-5 rounded-xl w-32 bg-white border" data-v="modificar" style="border-color:#E1DED5"><span style="font-size:22px">✎</span><span class="text-sm font-semibold" style="color:#1C2B3A">Modificación</span></button>
+      <button class="inSubtn flex flex-col items-center gap-2 px-6 py-5 rounded-xl w-32 bg-white border" data-v="stock" style="border-color:#E1DED5"><span style="font-size:22px">📦</span><span class="text-sm font-semibold" style="color:#1C2B3A">Existencias</span></button>
+    </div>`;
+    main.innerHTML = html;
+    document.querySelectorAll(".inSubtn").forEach(b => b.addEventListener("click", () => { state.usuarioSubvista = b.dataset.v; renderSeccion(); }));
+    return;
+  }
+
+  html += `<button id="volverInventario" class="text-xs font-semibold mb-4" style="color:#B8862E">← Regresar al menú de Inventario</button><div id="inContenido"></div>`;
+  main.innerHTML = html;
+  document.getElementById("volverInventario").addEventListener("click", () => { state.usuarioSubvista = "menu"; renderSeccion(); });
+
+  if (state.usuarioSubvista === "alta") renderProductoAlta();
+  if (state.usuarioSubvista === "baja") renderProductoBaja();
+  if (state.usuarioSubvista === "modificar") renderProductoModificar();
+  if (state.usuarioSubvista === "stock") renderProductoStock();
+}
+
+function renderProductoAlta() {
+  const cont = document.getElementById("inContenido");
+  cont.innerHTML = `
+    <div class="max-w-sm p-5 rounded-xl bg-white border" style="border-color:#E1DED5">
+      <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Nombre del producto</label>
+      <input id="prNombre" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
+      <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Categoría</label>
+      <select id="prCategoria" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5">
+        ${CATEGORIAS_PRODUCTO.map(c => `<option value="${c}">${c}</option>`).join("")}
+      </select>
+      <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Costo</label>
+      <input id="prCosto" type="number" step="0.01" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
+      <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Existencias iniciales</label>
+      <input id="prStock" type="number" value="0" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
+      <div id="prMsg"></div>
+      <div class="flex gap-2 mt-2">
+        <button id="prCancelar" class="flex-1 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">Cancelar</button>
+        <button id="prGuardar" class="flex-1 py-2 rounded-lg text-sm font-bold" style="background:#1C2B3A; color:#F4F1EB">Guardar</button>
+      </div>
+    </div>`;
+
+  document.getElementById("prCancelar").addEventListener("click", () => { state.usuarioSubvista = "menu"; renderSeccion(); });
+
+  document.getElementById("prGuardar").addEventListener("click", async () => {
+    const nombre = document.getElementById("prNombre").value;
+    const categoria = document.getElementById("prCategoria").value;
+    const costo = Number(document.getElementById("prCosto").value);
+    const stock = Number(document.getElementById("prStock").value);
+    const msg = document.getElementById("prMsg");
+    msg.innerHTML = "";
+    if (!nombre.trim()) return msg.innerHTML = errBox("Escribe el nombre del producto.");
+    if (isNaN(costo) || costo < 0) return msg.innerHTML = errBox("Escribe un costo válido.");
+    const { data, error } = await sb.rpc("productos_alta", { p_nombre_producto: nombre, p_categoria_producto: categoria, p_costo_producto: costo, p_stock: stock });
+    if (error) return msg.innerHTML = errBox(error.message);
+    msg.innerHTML = okBox(`Producto creado: ${data[0].id_producto}`);
+    setTimeout(() => { state.usuarioSubvista = "menu"; renderSeccion(); }, 1100);
+  });
+}
+
+function renderProductoBaja() {
+  const cont = document.getElementById("inContenido");
+  cont.innerHTML = renderBuscadorGenerico("Buscar producto por nombre o folio…") + `<div id="gMsg" class="mt-3"></div><div id="gModal"></div>`;
+  const ctrl = activarBuscadorGenerico("productos_buscar", (r, i) => `
+    <button data-idx="${i}" class="w-full text-left px-4 py-2.5 text-sm bg-white" style="${i > 0 ? 'border-top:1px solid #E1DED5' : ''}">
+      <div style="color:#1C2B3A" class="font-medium">${r.nombre_producto}</div>
+      <div style="color:#6C7B8A" class="text-xs">${r.id_producto} · ${r.categoria_producto} · Stock: ${r.stock}</div>
+    </button>`);
+  ctrl.setOnFilaClick((r) => {
+    document.getElementById("gModal").innerHTML = `
+      <div class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(28,43,58,0.5)">
+        <div class="rounded-xl p-5 bg-white w-72">
+          <p class="text-sm mb-4" style="color:#1C2B3A">Confirme que desea eliminar el Producto: <b>${r.nombre_producto}</b> (${r.id_producto})</p>
+          <div id="gModalMsg"></div>
+          <div class="flex gap-2">
+            <button id="gModalCancelar" class="flex-1 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">Cancelar</button>
+            <button id="gModalConfirmar" class="flex-1 py-2 rounded-lg text-sm font-bold" style="background:#B5453A; color:#fff">Eliminar</button>
+          </div>
+        </div>
+      </div>`;
+    document.getElementById("gModalCancelar").addEventListener("click", () => { document.getElementById("gModal").innerHTML = ""; });
+    document.getElementById("gModalConfirmar").addEventListener("click", async () => {
+      const { error } = await sb.rpc("productos_eliminar", { p_id: r.id });
+      if (error) { document.getElementById("gModalMsg").innerHTML = errBox(error.message); return; }
+      document.getElementById("gModal").innerHTML = "";
+      document.getElementById("gMsg").innerHTML = `<p class="text-xs" style="color:#3F7A5E">✓ Producto eliminado correctamente.</p>`;
+      setTimeout(() => { state.usuarioSubvista = "menu"; renderSeccion(); }, 1100);
+    });
+  });
+}
+
+function renderProductoModificar() {
+  const cont = document.getElementById("inContenido");
+  cont.innerHTML = renderBuscadorGenerico("Buscar producto por nombre o folio…") + `<div id="gForm"></div>`;
+  const ctrl = activarBuscadorGenerico("productos_buscar", (r, i) => `
+    <button data-idx="${i}" class="w-full text-left px-4 py-2.5 text-sm bg-white" style="${i > 0 ? 'border-top:1px solid #E1DED5' : ''}">
+      <div style="color:#1C2B3A" class="font-medium">${r.nombre_producto}</div>
+      <div style="color:#6C7B8A" class="text-xs">${r.id_producto} · ${r.categoria_producto} · Stock: ${r.stock}</div>
+    </button>`);
+  ctrl.setOnFilaClick((r) => {
+    document.getElementById("gForm").innerHTML = `
+      <div class="max-w-sm p-5 rounded-xl mt-4 bg-white border" style="border-color:#E1DED5">
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Folio (no editable)</label>
+        <input value="${r.id_producto}" disabled class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5; color:#6C7B8A; background:#F4F1EB" />
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Nombre</label>
+        <input id="prModNombre" value="${r.nombre_producto}" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Categoría</label>
+        <select id="prModCategoria" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5">
+          ${CATEGORIAS_PRODUCTO.map(c => `<option value="${c}" ${c === r.categoria_producto ? "selected" : ""}>${c}</option>`).join("")}
+        </select>
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Costo</label>
+        <input id="prModCosto" type="number" step="0.01" value="${r.costo_producto}" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
+        <div id="prModMsg"></div>
+        <button id="prModGuardar" class="w-full py-2 rounded-lg text-sm font-bold" style="background:#1C2B3A; color:#F4F1EB">Guardar cambios</button>
+      </div>`;
+    document.getElementById("prModGuardar").addEventListener("click", async () => {
+      const nombre = document.getElementById("prModNombre").value;
+      const categoria = document.getElementById("prModCategoria").value;
+      const costo = Number(document.getElementById("prModCosto").value);
+      const msg = document.getElementById("prModMsg");
+      msg.innerHTML = "";
+      if (isNaN(costo) || costo < 0) return msg.innerHTML = errBox("Escribe un costo válido.");
+      const { error } = await sb.rpc("productos_modificar", { p_id: r.id, p_nombre_producto: nombre, p_categoria_producto: categoria, p_costo_producto: costo });
+      if (error) return msg.innerHTML = errBox(error.message);
+      msg.innerHTML = okBox("Cambios guardados correctamente.");
+      setTimeout(() => { state.usuarioSubvista = "menu"; renderSeccion(); }, 1100);
+    });
+  });
+}
+
+function renderProductoStock() {
+  const cont = document.getElementById("inContenido");
+  cont.innerHTML = `
+    <p class="text-xs mb-3" style="color:#6C7B8A">Busca por nombre, o escribe "Bebida", "Botana" o "Alimento" para ver toda una categoría.</p>
+    ${renderBuscadorGenerico("Buscar producto…")}`;
+  const ctrl = activarBuscadorGenerico("productos_buscar", (r, i) => `
+    <div data-idx="${i}" data-pid="${r.id}" class="w-full flex items-center justify-between px-4 py-2.5 text-sm bg-white" style="${i > 0 ? 'border-top:1px solid #E1DED5' : ''}">
+      <div>
+        <div style="color:#1C2B3A" class="font-medium">${r.nombre_producto}</div>
+        <div style="color:#6C7B8A" class="text-xs">${r.id_producto} · ${r.categoria_producto}</div>
+      </div>
+      <div class="flex items-center gap-2">
+        <button class="stkBtn no-select w-7 h-7 rounded flex items-center justify-center" data-delta="-1" data-pid="${r.id}" style="background:#F4F1EB">−</button>
+        <span class="stkValor jb-mono text-sm font-bold w-8 text-center" data-pid="${r.id}" style="color:#1C2B3A">${r.stock}</span>
+        <button class="stkBtn no-select w-7 h-7 rounded flex items-center justify-center" data-delta="1" data-pid="${r.id}" style="background:#F4F1EB">+</button>
+        <button class="stkBtn no-select px-2 h-7 rounded text-xs font-semibold" data-delta="10" data-pid="${r.id}" style="background:#E6F0EA; color:#3F7A5E">+10</button>
+      </div>
+    </div>`);
+  ctrl.setOnFilaClick(() => {});
+
+  const cuerpo = document.getElementById("gBuscarResultados");
+  cuerpo.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".stkBtn");
+    if (!btn) return;
+    const pid = btn.dataset.pid;
+    const delta = Number(btn.dataset.delta);
+    const { data, error } = await sb.rpc("productos_ajustar_stock", { p_id: pid, p_delta: delta });
+    if (error) { alert(error.message); return; }
+    const valorEl = document.querySelector(`.stkValor[data-pid="${pid}"]`);
+    if (valorEl && data && data[0]) valorEl.textContent = data[0].stock;
+  });
+}
+
 </script>
 </body>
 </html>
