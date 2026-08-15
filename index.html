@@ -39,6 +39,7 @@ const MENU = [
   { id: "cliente", label: "Cliente", roles: ["Administrador"] },
   { id: "guisados", label: "Guisados", roles: ["Administrador"] },
   { id: "inventario", label: "Inventario", roles: ["Administrador"] },
+  { id: "enviar_guisados", label: "Enviar Guisados", roles: ["Administrador"] },
   { id: "ordenes_receso", label: "Ordenes Receso", roles: ["Administrador"] },
   { id: "reportes", label: "Reportes", roles: ["Administrador"] },
 ];
@@ -186,6 +187,7 @@ function renderSeccion() {
   if (state.seccion === "cliente") return renderCliente(main);
   if (state.seccion === "guisados") return renderGuisados(main);
   if (state.seccion === "inventario") return renderInventario(main);
+  if (state.seccion === "enviar_guisados") return renderEnviarGuisados(main);
   const label = MENU.find(m => m.id === state.seccion)?.label;
   main.innerHTML = `<div class="h-full flex flex-col items-center justify-center text-center" style="color:#6C7B8A">
     <p class="text-sm font-semibold" style="color:#1C2B3A">${label}</p>
@@ -1093,6 +1095,207 @@ function renderGuisadoModificar() {
 }
 
 render();
+// ============================================================
+// Módulo Enviar Guisados
+// ============================================================
+
+function fechaManana() {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function ligaPedido(qrToken) {
+  return new URL("pedido.html?t=" + qrToken, window.location.href).href;
+}
+
+function renderEnviarGuisados(main) {
+  main.innerHTML = `
+    <h2 class="text-lg font-bold mb-4" style="color:#1C2B3A">Enviar Guisados</h2>
+    <div class="max-w-md p-5 rounded-xl bg-white border mb-4" style="border-color:#E1DED5">
+      <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Fecha del menú</label>
+      <input id="egFecha" type="date" value="${fechaManana()}" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
+      <button id="egCargar" class="px-3 py-2 rounded-lg text-xs font-semibold" style="background:#F4F1EB; color:#1C2B3A">Cargar / crear este menú</button>
+    </div>
+    <div id="egForm"></div>`;
+
+  document.getElementById("egCargar").addEventListener("click", cargarMenuDia);
+  cargarMenuDia();
+
+  async function cargarMenuDia() {
+    const fecha = document.getElementById("egFecha").value;
+    const { data } = await sb.rpc("menu_dia_obtener_por_fecha", { p_fecha: fecha });
+    const existente = data && data[0] ? data[0] : null;
+    renderFormularioMenu(fecha, existente);
+  }
+
+  async function renderFormularioMenu(fecha, existente) {
+    const cont = document.getElementById("egForm");
+    cont.innerHTML = `<p class="text-xs" style="color:#6C7B8A">Cargando…</p>`;
+
+    const [bebidas, alimentos] = await Promise.all([
+      sb.rpc("productos_buscar", { p_criterio: "Bebida" }),
+      sb.rpc("productos_buscar", { p_criterio: "Alimento" }),
+    ]);
+
+    const esConfirmado = existente && existente.estado === "Confirmado";
+
+    cont.innerHTML = `
+      <div class="max-w-md p-5 rounded-xl bg-white border mb-4" style="border-color:#E1DED5">
+        ${esConfirmado ? `<div class="mb-3 text-xs p-2 rounded-lg" style="background:#E6F0EA; color:#3F7A5E">Este menú ya está Confirmado. Solo puedes verlo.</div>` : ""}
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Día del calendario (1-26)</label>
+        <input id="egDia" type="number" min="1" max="26" ${esConfirmado ? "disabled" : ""} value="${existente ? existente.dia_guisado : ""}" class="w-full px-3 py-2 rounded-lg text-sm mb-2 outline-none border" style="border-color:#E1DED5" />
+        <button id="egBuscarDia" ${esConfirmado ? "disabled" : ""} class="px-3 py-1.5 rounded-lg text-xs font-semibold mb-3" style="background:#F4F1EB; color:#1C2B3A">Buscar guisados de ese día</button>
+
+        <div id="egGuisadosSel"></div>
+        <div id="egCompG1Wrap"></div>
+        <div id="egCompG2Wrap"></div>
+
+        <label class="block text-xs font-semibold mb-1 mt-3" style="color:#6C7B8A">Tortas disponibles</label>
+        <div class="mb-3">${(alimentos.data || []).map(p => `
+          <label class="flex items-center gap-2 text-sm" style="color:#1C2B3A">
+            <input type="checkbox" class="tortaChk" value="${p.id}" ${existente && existente.tortas_disponibles && existente.tortas_disponibles.includes(p.id) ? "checked" : ""} ${esConfirmado ? "disabled" : ""} />
+            ${p.nombre_producto}
+          </label>`).join("") || `<p class="text-xs" style="color:#6C7B8A">No hay productos tipo Alimento registrados.</p>`}
+        </div>
+
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Aguas disponibles</label>
+        <div class="mb-3">${(bebidas.data || []).map(p => `
+          <label class="flex items-center gap-2 text-sm" style="color:#1C2B3A">
+            <input type="checkbox" class="aguaChk" value="${p.id}" ${existente && existente.aguas_disponibles && existente.aguas_disponibles.includes(p.id) ? "checked" : ""} ${esConfirmado ? "disabled" : ""} />
+            ${p.nombre_producto}
+          </label>`).join("") || `<p class="text-xs" style="color:#6C7B8A">No hay productos tipo Bebida registrados.</p>`}
+        </div>
+
+        <div id="egMsg"></div>
+        ${!esConfirmado ? `
+          <div class="flex gap-2 mt-2">
+            <button id="egGuardarBorrador" class="flex-1 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">Guardar borrador</button>
+            <button id="egConfirmar" class="flex-1 py-2 rounded-lg text-sm font-bold" style="background:#1C2B3A; color:#F4F1EB">Confirmar menú</button>
+          </div>` : ""}
+      </div>
+      <div id="egEnvio"></div>`;
+
+    let guisado1Sel = existente ? existente.guisado_1_id : null;
+    let guisado2Sel = existente ? existente.guisado_2_id : null;
+
+    async function mostrarSelectoresGuisado(dia) {
+      const { data } = await sb.rpc("guisados_del_dia", { p_dia: dia });
+      const lista = data || [];
+      const wrap = document.getElementById("egGuisadosSel");
+      wrap.innerHTML = `
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Guisado 1</label>
+        <select id="egG1" ${esConfirmado ? "disabled" : ""} class="w-full px-3 py-2 rounded-lg text-sm mb-2 outline-none border" style="border-color:#E1DED5">
+          ${lista.map(g => `<option value="${g.id}" ${g.id === guisado1Sel ? "selected" : ""}>${g.nombre_guisado}</option>`).join("")}
+        </select>
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Guisado 2</label>
+        <select id="egG2" ${esConfirmado ? "disabled" : ""} class="w-full px-3 py-2 rounded-lg text-sm mb-2 outline-none border" style="border-color:#E1DED5">
+          ${lista.map(g => `<option value="${g.id}" ${g.id === guisado2Sel ? "selected" : ""}>${g.nombre_guisado}</option>`).join("")}
+        </select>
+        ${lista.length === 0 ? `<p class="text-xs" style="color:#B5453A">No hay guisados registrados para ese día.</p>` : ""}`;
+
+      const g1Actual = document.getElementById("egG1")?.value;
+      const g2Actual = document.getElementById("egG2")?.value;
+      await cargarComplementosDisponibles("egCompG1Wrap", "Guisado 1", g1Actual, existente ? existente.complementos_g1_disponibles || [] : []);
+      await cargarComplementosDisponibles("egCompG2Wrap", "Guisado 2", g2Actual, existente ? existente.complementos_g2_disponibles || [] : []);
+
+      if (!esConfirmado) {
+        document.getElementById("egG1")?.addEventListener("change", (e) => cargarComplementosDisponibles("egCompG1Wrap", "Guisado 1", e.target.value, []));
+        document.getElementById("egG2")?.addEventListener("change", (e) => cargarComplementosDisponibles("egCompG2Wrap", "Guisado 2", e.target.value, []));
+      }
+    }
+
+    async function cargarComplementosDisponibles(contId, etiqueta, guisadoId, seleccionadosPrevios) {
+      const el = document.getElementById(contId);
+      if (!guisadoId) { el.innerHTML = ""; return; }
+      const { data } = await sb.rpc("guisados_complementos_obtener", { p_guisado_id: guisadoId });
+      const lista = data || [];
+      if (lista.length === 0) {
+        el.innerHTML = `<p class="text-xs mt-1" style="color:#6C7B8A">${etiqueta}: no tiene complementos compatibles registrados.</p>`;
+        return;
+      }
+      el.innerHTML = `<label class="block text-xs font-semibold mb-1 mt-2" style="color:#6C7B8A">Complementos disponibles HOY para ${etiqueta} (de los compatibles con la receta)</label>
+        <div class="flex flex-col gap-1 mb-2">
+          ${lista.map(c => `
+            <label class="flex items-center gap-2 text-xs" style="color:#1C2B3A">
+              <input type="checkbox" class="${contId}Chk" value="${c.id}" ${seleccionadosPrevios.includes(c.id) ? "checked" : ""} ${esConfirmado ? "disabled" : ""} />
+              ${c.nombre_complemento}
+            </label>`).join("")}
+        </div>`;
+    }
+
+    if (existente) mostrarSelectoresGuisado(existente.dia_guisado);
+
+    if (!esConfirmado) {
+      document.getElementById("egBuscarDia").addEventListener("click", () => {
+        const dia = Number(document.getElementById("egDia").value);
+        if (dia >= 1 && dia <= 26) mostrarSelectoresGuisado(dia);
+      });
+
+      document.getElementById("egGuardarBorrador").addEventListener("click", guardarBorrador);
+      document.getElementById("egConfirmar").addEventListener("click", async () => {
+        await guardarBorrador();
+        const msg = document.getElementById("egMsg");
+        const { data: md } = await sb.rpc("menu_dia_obtener_por_fecha", { p_fecha: fecha });
+        if (!md || !md[0]) return msg.innerHTML = errBox("Guarda el borrador primero.");
+        const { data, error } = await sb.rpc("menu_dia_confirmar", { p_menu_dia_id: md[0].id, p_usuario_id: state.usuario.id });
+        if (error) return msg.innerHTML = errBox(error.message);
+        msg.innerHTML = okBox("Menú confirmado. Ya puedes enviarlo a los padres.");
+        renderFormularioMenu(fecha, { ...md[0], estado: "Confirmado" });
+      });
+    }
+
+    async function guardarBorrador() {
+      const dia = Number(document.getElementById("egDia").value);
+      const g1 = document.getElementById("egG1")?.value;
+      const g2 = document.getElementById("egG2")?.value;
+      const tortas = [...document.querySelectorAll(".tortaChk:checked")].map(c => c.value);
+      const aguas = [...document.querySelectorAll(".aguaChk:checked")].map(c => c.value);
+      const compG1 = [...document.querySelectorAll(".egCompG1WrapChk:checked")].map(c => c.value);
+      const compG2 = [...document.querySelectorAll(".egCompG2WrapChk:checked")].map(c => c.value);
+      const msg = document.getElementById("egMsg");
+      msg.innerHTML = "";
+      if (!dia || dia < 1 || dia > 26) { msg.innerHTML = errBox("El día debe estar entre 1 y 26."); throw new Error("validación"); }
+      if (!g1 || !g2) { msg.innerHTML = errBox("Selecciona Guisado 1 y Guisado 2."); throw new Error("validación"); }
+      const { error } = await sb.rpc("menu_dia_guardar", {
+        p_fecha: fecha, p_dia_guisado: dia, p_guisado_1_id: g1, p_guisado_2_id: g2,
+        p_tortas: tortas, p_aguas: aguas, p_complementos_g1: compG1, p_complementos_g2: compG2,
+      });
+      if (error) { msg.innerHTML = errBox(error.message); throw error; }
+      msg.innerHTML = okBox("Borrador guardado.");
+    }
+
+    if (esConfirmado) {
+      mostrarEnvio(existente.id);
+    }
+  }
+
+  async function mostrarEnvio(menuDiaId) {
+    const cont = document.getElementById("egEnvio");
+    cont.innerHTML = `<p class="text-xs" style="color:#6C7B8A">Cargando lista de padres…</p>`;
+    const { data, error } = await sb.rpc("clientes_para_envio", { p_menu_dia_id: menuDiaId });
+    if (error) { cont.innerHTML = errBox(error.message); return; }
+    const lista = data || [];
+    const pendientes = lista.filter(c => !c.ya_respondio).length;
+    cont.innerHTML = `
+      <div class="max-w-md p-5 rounded-xl bg-white border" style="border-color:#E1DED5">
+        <p class="text-sm font-semibold mb-3" style="color:#1C2B3A">Enviar liga a padres (${lista.length} clientes, ${pendientes} sin responder)</p>
+        <div class="flex flex-col gap-1 max-h-80 overflow-y-auto">
+          ${lista.map(c => `
+            <div class="flex items-center justify-between text-sm py-1.5" style="border-bottom:1px solid #E1DED5">
+              <div>
+                <div style="color:#1C2B3A">${c.nombre_cliente} ${c.ya_respondio ? "✓" : ""}</div>
+                <div class="text-xs" style="color:#6C7B8A">${c.id_cliente}</div>
+              </div>
+              <a class="px-2 py-1 rounded text-xs font-semibold" style="background:#25D366; color:#fff"
+                 href="https://wa.me/52${c.telefono}?text=${encodeURIComponent('Hola, este es el menú de mañana en la Cafetería Juan Bosco. Selecciona lo que va a consumir tu hijo(a) aquí: ' + ligaPedido(c.qr_token))}"
+                 target="_blank" rel="noopener">Enviar WhatsApp</a>
+            </div>`).join("")}
+        </div>
+      </div>`;
+  }
+}
+
 // ============================================================
 // Módulo Inventario / Productos
 // ============================================================
