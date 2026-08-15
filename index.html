@@ -6,7 +6,7 @@
 <title>Cafetería Juan Bosco</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.tailwindcss.com"></script>
-<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.4.4/build/qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
@@ -477,8 +477,36 @@ function okBox(texto) {
   return `<div class="text-xs mb-3 p-2 rounded-lg" style="background:#E6F0EA; color:#3F7A5E">${texto}</div>`;
 }
 
-function qrToCanvas(canvas, texto, opciones) {
+function cargarScript(src) {
   return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error("No se pudo cargar " + src));
+    document.head.appendChild(s);
+  });
+}
+
+async function asegurarQRCode() {
+  if (typeof QRCode !== "undefined") return;
+  const fuentesRespaldo = [
+    "https://unpkg.com/qrcode@1.4.4/build/qrcode.min.js",
+    "https://cdn.jsdelivr.net/npm/qrcode@1.5.0/build/qrcode.min.js",
+  ];
+  for (const src of fuentesRespaldo) {
+    try {
+      await cargarScript(src);
+      if (typeof QRCode !== "undefined") return;
+    } catch (e) { /* probar la siguiente fuente */ }
+  }
+  throw new Error("No se pudo cargar la librería de códigos QR desde ninguna fuente. Revisa tu conexión a internet.");
+}
+
+function qrToCanvas(canvas, texto, opciones) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      await asegurarQRCode();
+    } catch (e) { return reject(e); }
     QRCode.toCanvas(canvas, texto, opciones, (err) => {
       if (err) reject(err); else resolve();
     });
@@ -486,7 +514,10 @@ function qrToCanvas(canvas, texto, opciones) {
 }
 
 function qrToDataUrl(texto, opciones) {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      await asegurarQRCode();
+    } catch (e) { return reject(e); }
     QRCode.toDataURL(texto, opciones, (err, url) => {
       if (err) reject(err); else resolve(url);
     });
