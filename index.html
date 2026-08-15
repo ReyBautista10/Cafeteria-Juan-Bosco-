@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Cafetería Juan Bosco</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  body { font-family: 'Inter', sans-serif; }
+  .jb-brand { font-family: 'Fraunces', serif; }
+  .jb-mono { font-family: 'JetBrains Mono', monospace; }
+</style>
+</head>
+<body class="bg-[#F4F1EB]">
+<div id="app"></div>
+
+<script>
+const SUPABASE_URL = "https://pvqmncpebgrmoondwmib.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB2cW1uY3BlYmdybW9vbmR3bWliIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY3Mzg4ODMsImV4cCI6MjEwMjMxNDg4M30.LKVzQwWWlfn1Cir332ZWax5UskxkKJtq5Q4-yGl6v44";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const PASSWORD_RULES = [
+  { label: "Mínimo 6 caracteres", test: p => p.length >= 6 },
+  { label: "Al menos 1 mayúscula", test: p => /[A-Z]/.test(p) },
+  { label: "Al menos 1 minúscula", test: p => /[a-z]/.test(p) },
+  { label: "Al menos 1 número", test: p => /[0-9]/.test(p) },
+  { label: "Al menos 1 carácter especial", test: p => /[^A-Za-z0-9]/.test(p) },
+];
+
+const MENU = [
+  { id: "venta_receso", label: "Venta Receso", roles: ["Administrador", "Cajero"] },
+  { id: "venta_general", label: "Venta General", roles: ["Administrador", "Cajero"] },
+  { id: "usuario", label: "Usuario", roles: ["Administrador"] },
+  { id: "cliente", label: "Cliente", roles: ["Administrador"] },
+  { id: "ordenes_receso", label: "Ordenes Receso", roles: ["Administrador"] },
+  { id: "reportes", label: "Reportes", roles: ["Administrador"] },
+  { id: "inventario", label: "Inventario", roles: ["Administrador"] },
+];
+
+let state = {
+  usuario: null,
+  seccion: null,
+  usuarioSubvista: "menu",
+  buscarResultados: [],
+  seleccionado: null,
+};
+
+const app = document.getElementById("app");
+
+function passwordChecklistHtml(password) {
+  return `<div class="grid grid-cols-1 sm:grid-cols-2 gap-1 mb-3">
+    ${PASSWORD_RULES.map(r => {
+      const ok = r.test(password);
+      return `<div class="flex items-center gap-1.5 text-xs" style="color:${ok ? "#3F7A5E" : "#6C7B8A"}">
+        ${ok ? "✓" : "○"} ${r.label}
+      </div>`;
+    }).join("")}
+  </div>`;
+}
+
+function render() {
+  if (!state.usuario) return renderLogin();
+  return renderApp();
+}
+
+function renderLogin() {
+  app.innerHTML = `
+    <div class="w-full min-h-screen flex items-center justify-center p-6" style="background:#1C2B3A">
+      <div class="w-full max-w-sm p-7 rounded-2xl bg-white">
+        <div class="flex flex-col items-center mb-6">
+          <div class="w-12 h-12 rounded-full flex items-center justify-center mb-3" style="background:#F4F1EB">
+            <span style="font-size:22px">☕</span>
+          </div>
+          <h1 class="jb-brand text-xl font-semibold" style="color:#1C2B3A">Cafetería Juan Bosco</h1>
+          <p class="text-xs mt-1" style="color:#6C7B8A">Secundaria y Preparatoria</p>
+        </div>
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Usuario</label>
+        <input id="loginInput" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5; color:#1C2B3A" autocapitalize="none" />
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Contraseña</label>
+        <input id="passwordInput" type="password" class="w-full px-3 py-2 rounded-lg text-sm mb-4 outline-none border" style="border-color:#E1DED5; color:#1C2B3A" />
+        <div id="loginError"></div>
+        <button id="loginBtn" class="w-full py-2.5 rounded-lg text-sm font-bold" style="background:#1C2B3A; color:#F4F1EB">Iniciar sesión</button>
+      </div>
+    </div>`;
+
+  const doLogin = async () => {
+    const login = document.getElementById("loginInput").value;
+    const password = document.getElementById("passwordInput").value;
+    const errBox = document.getElementById("loginError");
+    const btn = document.getElementById("loginBtn");
+    if (!login || !password) return;
+    errBox.innerHTML = "";
+    btn.textContent = "Verificando…";
+    btn.disabled = true;
+    const { data, error } = await sb.rpc("login_usuario", { p_login: login, p_password: password });
+    btn.textContent = "Iniciar sesión";
+    btn.disabled = false;
+    if (error) {
+      errBox.innerHTML = `<div class="text-xs mb-3 p-2 rounded-lg" style="background:#F5E4E1; color:#B5453A">${error.message}</div>`;
+      return;
+    }
+    if (!data || data.length === 0) {
+      errBox.innerHTML = `<div class="text-xs mb-3 p-2 rounded-lg" style="background:#F5E4E1; color:#B5453A">Usuario o contraseña incorrectos.</div>`;
+      return;
+    }
+    state.usuario = data[0];
+    render();
+  };
+
+  document.getElementById("loginBtn").addEventListener("click", doLogin);
+  document.getElementById("passwordInput").addEventListener("keydown", e => { if (e.key === "Enter") doLogin(); });
+}
+
+function renderApp() {
+  const menuVisible = MENU.filter(m => m.roles.includes(state.usuario.puesto));
+  app.innerHTML = `
+    <div class="w-full min-h-screen flex flex-col">
+      <header class="flex items-center justify-between px-5 py-3" style="background:#1C2B3A; color:#F4F1EB">
+        <div class="flex items-center gap-2">
+          <span style="color:#B8862E">☕</span>
+          <span class="jb-brand text-base font-semibold">Cafetería Juan Bosco</span>
+        </div>
+        <div class="flex items-center gap-4">
+          <div class="text-right hidden sm:block">
+            <div class="text-sm font-semibold">Bienvenido, ${state.usuario.nom_usuario}</div>
+            <div class="text-xs" style="color:#9CA9B6">${state.usuario.puesto}</div>
+          </div>
+          <div id="reloj" class="jb-mono text-xs px-2 py-1 rounded" style="background:#28394B"></div>
+          <button id="logoutBtn" class="px-3 py-1.5 rounded-lg text-xs font-semibold" style="background:#B5453A; color:#fff">Cerrar sesión</button>
+        </div>
+      </header>
+      <div class="flex flex-1 min-h-0">
+        <nav id="nav" class="w-56 shrink-0 p-3 flex flex-col gap-1 bg-white" style="border-right:1px solid #E1DED5">
+          ${menuVisible.map(m => `
+            <button data-id="${m.id}" class="navbtn flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-left"
+              style="background:${state.seccion === m.id ? "#1C2B3A" : "transparent"}; color:${state.seccion === m.id ? "#F4F1EB" : "#1C2B3A"}">
+              ${m.label}
+            </button>`).join("")}
+        </nav>
+        <main id="main" class="flex-1 overflow-y-auto p-5"></main>
+      </div>
+    </div>`;
+
+  document.getElementById("logoutBtn").addEventListener("click", () => {
+    state.usuario = null; state.seccion = null; render();
+  });
+  document.querySelectorAll(".navbtn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      state.seccion = btn.dataset.id;
+      state.usuarioSubvista = "menu";
+      render();
+    });
+  });
+
+  const reloj = document.getElementById("reloj");
+  function tick() { reloj.textContent = new Date().toLocaleTimeString("es-MX"); }
+  tick();
+  window.__jbTimer && clearInterval(window.__jbTimer);
+  window.__jbTimer = setInterval(tick, 1000);
+
+  renderSeccion();
+}
+
+function renderSeccion() {
+  const main = document.getElementById("main");
+  if (!state.seccion) {
+    main.innerHTML = `<div class="h-full flex flex-col items-center justify-center text-center" style="color:#6C7B8A">
+      <p class="text-sm">Selecciona una opción del menú para comenzar.</p></div>`;
+    return;
+  }
+  if (state.seccion === "usuario") return renderUsuario(main);
+  const label = MENU.find(m => m.id === state.seccion)?.label;
+  main.innerHTML = `<div class="h-full flex flex-col items-center justify-center text-center" style="color:#6C7B8A">
+    <p class="text-sm font-semibold" style="color:#1C2B3A">${label}</p>
+    <p class="text-xs mt-1">Este módulo todavía está en construcción.</p></div>`;
+}
+
+function renderUsuario(main) {
+  let html = `<h2 class="text-lg font-bold mb-4" style="color:#1C2B3A">Usuario</h2>`;
+  if (state.usuarioSubvista === "menu") {
+    html += `<div class="flex gap-3 flex-wrap">
+      <button class="usubtn flex flex-col items-center gap-2 px-6 py-5 rounded-xl w-32 bg-white border" data-v="alta" style="border-color:#E1DED5"><span style="font-size:22px">+</span><span class="text-sm font-semibold" style="color:#1C2B3A">Alta</span></button>
+      <button class="usubtn flex flex-col items-center gap-2 px-6 py-5 rounded-xl w-32 bg-white border" data-v="baja" style="border-color:#E1DED5"><span style="font-size:22px">🗑</span><span class="text-sm font-semibold" style="color:#1C2B3A">Baja</span></button>
+      <button class="usubtn flex flex-col items-center gap-2 px-6 py-5 rounded-xl w-32 bg-white border" data-v="modificar" style="border-color:#E1DED5"><span style="font-size:22px">✎</span><span class="text-sm font-semibold" style="color:#1C2B3A">Modificación</span></button>
+    </div>`;
+    main.innerHTML = html;
+    document.querySelectorAll(".usubtn").forEach(b => b.addEventListener("click", () => { state.usuarioSubvista = b.dataset.v; renderSeccion(); }));
+    return;
+  }
+
+  html += `<button id="volverUsuario" class="text-xs font-semibold mb-4" style="color:#B8862E">← Regresar al menú de Usuario</button>`;
+  main.innerHTML = html + `<div id="usuarioContenido"></div>`;
+  document.getElementById("volverUsuario").addEventListener("click", () => { state.usuarioSubvista = "menu"; renderSeccion(); });
+
+  if (state.usuarioSubvista === "alta") renderUsuarioAlta();
+  if (state.usuarioSubvista === "baja") renderUsuarioBaja();
+  if (state.usuarioSubvista === "modificar") renderUsuarioModificar();
+}
+
+function renderUsuarioAlta() {
+  const cont = document.getElementById("usuarioContenido");
+  cont.innerHTML = `
+    <div class="max-w-sm p-5 rounded-xl bg-white border" style="border-color:#E1DED5">
+      <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Nombre de usuario</label>
+      <input id="altaNombre" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
+      <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Puesto</label>
+      <select id="altaPuesto" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5">
+        <option value="Cajero">Cajero</option>
+        <option value="Administrador">Administrador</option>
+      </select>
+      <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Login</label>
+      <input id="altaLogin" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
+      <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Contraseña</label>
+      <input id="altaPassword" type="password" class="w-full px-3 py-2 rounded-lg text-sm mb-2 outline-none border" style="border-color:#E1DED5" />
+      <div id="altaChecklist"></div>
+      <div id="altaMsg"></div>
+      <div class="flex gap-2 mt-2">
+        <button id="altaCancelar" class="flex-1 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">Cancelar</button>
+        <button id="altaGuardar" class="flex-1 py-2 rounded-lg text-sm font-bold" style="background:#1C2B3A; color:#F4F1EB">Guardar</button>
+      </div>
+    </div>`;
+
+  const pwInput = document.getElementById("altaPassword");
+  pwInput.addEventListener("input", () => {
+    document.getElementById("altaChecklist").innerHTML = passwordChecklistHtml(pwInput.value);
+  });
+  document.getElementById("altaChecklist").innerHTML = passwordChecklistHtml("");
+
+  document.getElementById("altaCancelar").addEventListener("click", () => { state.usuarioSubvista = "menu"; renderSeccion(); });
+
+  document.getElementById("altaGuardar").addEventListener("click", async () => {
+    const nom_usuario = document.getElementById("altaNombre").value;
+    const puesto = document.getElementById("altaPuesto").value;
+    const login = document.getElementById("altaLogin").value;
+    const password = pwInput.value;
+    const msg = document.getElementById("altaMsg");
+    msg.innerHTML = "";
+    if (!nom_usuario.trim() || !login.trim()) {
+      msg.innerHTML = `<div class="text-xs mb-3 p-2 rounded-lg" style="background:#F5E4E1; color:#B5453A">Completa nombre y login.</div>`;
+      return;
+    }
+    if (!PASSWORD_RULES.every(r => r.test(password))) {
+      msg.innerHTML = `<div class="text-xs mb-3 p-2 rounded-lg" style="background:#F5E4E1; color:#B5453A">La contraseña no cumple los requisitos.</div>`;
+      return;
+    }
+    const { error } = await sb.rpc("usuarios_alta", { p_nom_usuario: nom_usuario, p_puesto: puesto, p_login: login, p_password: password });
+    if (error) {
+      msg.innerHTML = `<div class="text-xs mb-3 p-2 rounded-lg" style="background:#F5E4E1; color:#B5453A">${error.message}</div>`;
+      return;
+    }
+    msg.innerHTML = `<div class="text-xs mb-3 p-2 rounded-lg" style="background:#E6F0EA; color:#3F7A5E">Usuario guardado correctamente.</div>`;
+    document.getElementById("altaNombre").value = "";
+    document.getElementById("altaLogin").value = "";
+    pwInput.value = "";
+    document.getElementById("altaChecklist").innerHTML = passwordChecklistHtml("");
+  });
+}
+
+function renderBuscador(onSeleccionar) {
+  return `
+    <div class="max-w-md">
+      <div class="flex items-center gap-2 px-3 py-2 rounded-lg mb-3 bg-white border" style="border-color:#E1DED5">
+        <input id="buscarInput" placeholder="Buscar por nombre o login…" class="bg-transparent outline-none text-sm flex-1" style="color:#1C2B3A" />
+      </div>
+      <div id="buscarResultados" class="rounded-xl overflow-hidden border" style="border-color:#E1DED5"></div>
+    </div>`;
+}
+
+function activarBuscador(onSeleccionar) {
+  const input = document.getElementById("buscarInput");
+  const cont = document.getElementById("buscarResultados");
+  let timer = null;
+  input.addEventListener("input", () => {
+    clearTimeout(timer);
+    const criterio = input.value.trim();
+    if (!criterio) { cont.innerHTML = ""; return; }
+    timer = setTimeout(async () => {
+      const { data, error } = await sb.rpc("usuarios_buscar", { p_criterio: criterio });
+      if (error) { cont.innerHTML = `<div class="p-3 text-xs" style="color:#B5453A">${error.message}</div>`; return; }
+      cont.innerHTML = (data || []).map((u, i) => `
+        <button class="resbtn w-full text-left px-4 py-2.5 text-sm bg-white" data-idx="${i}" style="${i > 0 ? 'border-top:1px solid #E1DED5' : ''}">
+          <div style="color:#1C2B3A" class="font-medium">${u.nom_usuario}</div>
+          <div style="color:#6C7B8A" class="text-xs">${u.login} · ${u.puesto}</div>
+        </button>`).join("");
+      const lista = data || [];
+      cont.querySelectorAll(".resbtn").forEach(b => {
+        b.addEventListener("click", () => onSeleccionar(lista[Number(b.dataset.idx)]));
+      });
+    }, 300);
+  });
+}
+
+function renderUsuarioBaja() {
+  const cont = document.getElementById("usuarioContenido");
+  cont.innerHTML = renderBuscador() + `<div id="bajaMsg" class="mt-3"></div><div id="bajaModal"></div>`;
+  activarBuscador((u) => {
+    document.getElementById("bajaModal").innerHTML = `
+      <div class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(28,43,58,0.5)" id="modalBg">
+        <div class="rounded-xl p-5 bg-white w-72">
+          <p class="text-sm mb-4" style="color:#1C2B3A">Confirme que desea eliminar del sistema al Usuario: <b>${u.nom_usuario}</b> (${u.login})</p>
+          <div id="bajaModalMsg"></div>
+          <div class="flex gap-2">
+            <button id="bajaCancelar" class="flex-1 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">Cancelar</button>
+            <button id="bajaConfirmar" class="flex-1 py-2 rounded-lg text-sm font-bold" style="background:#B5453A; color:#fff">Eliminar</button>
+          </div>
+        </div>
+      </div>`;
+    document.getElementById("bajaCancelar").addEventListener("click", () => { document.getElementById("bajaModal").innerHTML = ""; });
+    document.getElementById("bajaConfirmar").addEventListener("click", async () => {
+      const { error } = await sb.rpc("usuarios_eliminar", { p_id: u.id });
+      const modalMsg = document.getElementById("bajaModalMsg");
+      if (error) { modalMsg.innerHTML = `<div class="text-xs mb-2" style="color:#B5453A">${error.message}</div>`; return; }
+      document.getElementById("bajaModal").innerHTML = "";
+      document.getElementById("bajaMsg").innerHTML = `<p class="text-xs" style="color:#3F7A5E">✓ Usuario eliminado correctamente.</p>`;
+    });
+  });
+}
+
+function renderUsuarioModificar() {
+  const cont = document.getElementById("usuarioContenido");
+  cont.innerHTML = renderBuscador() + `<div id="modForm"></div>`;
+  activarBuscador((u) => {
+    document.getElementById("modForm").innerHTML = `
+      <div class="max-w-sm p-5 rounded-xl mt-4 bg-white border" style="border-color:#E1DED5">
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Login (no editable)</label>
+        <input value="${u.login}" disabled class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5; color:#6C7B8A; background:#F4F1EB" />
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Nombre de usuario</label>
+        <input id="modNombre" value="${u.nom_usuario}" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Puesto</label>
+        <select id="modPuesto" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5">
+          <option value="Cajero" ${u.puesto === "Cajero" ? "selected" : ""}>Cajero</option>
+          <option value="Administrador" ${u.puesto === "Administrador" ? "selected" : ""}>Administrador</option>
+        </select>
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Nueva contraseña (opcional)</label>
+        <input id="modPassword" type="password" placeholder="Dejar en blanco para no cambiarla" class="w-full px-3 py-2 rounded-lg text-sm mb-2 outline-none border" style="border-color:#E1DED5" />
+        <div id="modChecklist"></div>
+        <div id="modMsg"></div>
+        <button id="modGuardar" class="w-full py-2 rounded-lg text-sm font-bold" style="background:#1C2B3A; color:#F4F1EB">Guardar cambios</button>
+      </div>`;
+
+    const pw = document.getElementById("modPassword");
+    pw.addEventListener("input", () => {
+      document.getElementById("modChecklist").innerHTML = pw.value ? passwordChecklistHtml(pw.value) : "";
+    });
+
+    document.getElementById("modGuardar").addEventListener("click", async () => {
+      const nom_usuario = document.getElementById("modNombre").value;
+      const puesto = document.getElementById("modPuesto").value;
+      const password = pw.value;
+      const msg = document.getElementById("modMsg");
+      msg.innerHTML = "";
+      if (password && !PASSWORD_RULES.every(r => r.test(password))) {
+        msg.innerHTML = `<div class="text-xs mb-3 p-2 rounded-lg" style="background:#F5E4E1; color:#B5453A">La nueva contraseña no cumple los requisitos.</div>`;
+        return;
+      }
+      const { error } = await sb.rpc("usuarios_modificar", { p_id: u.id, p_nom_usuario: nom_usuario, p_puesto: puesto, p_password: password || null });
+      if (error) {
+        msg.innerHTML = `<div class="text-xs mb-3 p-2 rounded-lg" style="background:#F5E4E1; color:#B5453A">${error.message}</div>`;
+        return;
+      }
+      msg.innerHTML = `<div class="text-xs mb-3 p-2 rounded-lg" style="background:#E6F0EA; color:#3F7A5E">Cambios guardados correctamente.</div>`;
+    });
+  });
+}
+
+render();
+</script>
+</body>
+</html>
