@@ -114,8 +114,64 @@ async function init() {
       </select>` : ""}
 
       <div id="pedMsg"></div>
+
+      <div class="p-3 rounded-lg mb-3" style="background:#F4F1EB">
+        <p class="text-sm font-semibold mb-2" style="color:#1C2B3A">¿Desea agregar extras a su orden (complementos, tortas, extra del guisado)?</p>
+        <div class="flex gap-2 mb-2">
+          <button id="extraNoBtn" type="button" class="flex-1 py-1.5 rounded-lg text-xs font-semibold" style="background:#1C2B3A; color:#fff">No</button>
+          <button id="extraSiBtn" type="button" class="flex-1 py-1.5 rounded-lg text-xs font-semibold" style="background:#fff; color:#1C2B3A; border:1px solid #E1DED5">Sí</button>
+        </div>
+        <div id="extrasWrap" style="display:none"></div>
+      </div>
+
       <button id="pedGuardar" class="w-full py-2.5 rounded-lg text-sm font-bold" style="background:#1C2B3A; color:#F4F1EB">Guardar selección</button>
-    </div>`;
+    </div>
+    <div id="pedConfirmacion"></div>`;
+
+  // Mapas de nombres para armar el resumen final
+  const nombresComplementos = {};
+  guisados.forEach(g => g.complementos.forEach(c => { nombresComplementos[c.id] = c.nombre; }));
+  const nombresTortas = {};
+  (tortas.data || []).forEach(t => { nombresTortas[t.id] = t.nombre_producto; });
+  const nombresAguas = {};
+  (aguas.data || []).forEach(a => { nombresAguas[a.id] = a.nombre_producto; });
+  const nombresGuisados = {};
+  guisados.forEach(g => { nombresGuisados[g.id] = g.nombre; });
+
+  document.getElementById("extraSiBtn").addEventListener("click", () => {
+    document.getElementById("extraSiBtn").style.background = "#1C2B3A";
+    document.getElementById("extraSiBtn").style.color = "#fff";
+    document.getElementById("extraNoBtn").style.background = "#fff";
+    document.getElementById("extraNoBtn").style.color = "#1C2B3A";
+    const wrap = document.getElementById("extrasWrap");
+    wrap.style.display = "block";
+    wrap.innerHTML = `
+      <label class="flex items-center gap-2 text-sm mb-1" style="color:#1C2B3A">
+        <input type="checkbox" id="extraGuisadoChk" />
+        Extra de guisado (otra porción del guisado que elegiste)
+      </label>
+      ${Object.keys(nombresComplementos).length > 0 ? `
+        <p class="text-xs font-semibold mt-2 mb-1" style="color:#6C7B8A">Complementos extra</p>
+        ${Object.entries(nombresComplementos).map(([id, nombre]) => `
+          <label class="flex items-center gap-2 text-sm" style="color:#1C2B3A">
+            <input type="checkbox" class="extraCompChk" value="${id}" /> ${nombre}
+          </label>`).join("")}` : ""}
+      ${Object.keys(nombresTortas).length > 0 ? `
+        <p class="text-xs font-semibold mt-2 mb-1" style="color:#6C7B8A">Tortas extra</p>
+        ${Object.entries(nombresTortas).map(([id, nombre]) => `
+          <label class="flex items-center gap-2 text-sm" style="color:#1C2B3A">
+            <input type="checkbox" class="extraTortaChk" value="${id}" /> ${nombre}
+          </label>`).join("")}` : ""}`;
+  });
+
+  document.getElementById("extraNoBtn").addEventListener("click", () => {
+    document.getElementById("extraNoBtn").style.background = "#1C2B3A";
+    document.getElementById("extraNoBtn").style.color = "#fff";
+    document.getElementById("extraSiBtn").style.background = "#fff";
+    document.getElementById("extraSiBtn").style.color = "#1C2B3A";
+    document.getElementById("extrasWrap").style.display = "none";
+    document.getElementById("extrasWrap").innerHTML = "";
+  });
 
   guisados.forEach(g => {
     const el = document.getElementById(`comp_${g.id}`);
@@ -167,12 +223,32 @@ async function init() {
       agua_id = null;
     }
 
+    const extra_guisado = document.getElementById("extraGuisadoChk")?.checked || false;
+    const extra_complementos = [...document.querySelectorAll(".extraCompChk:checked")].map(c => c.value);
+    const extra_tortas = [...document.querySelectorAll(".extraTortaChk:checked")].map(c => c.value);
+
     const { error } = await sb.rpc("pedido_guardar", {
       p_token: token, p_menu_dia_id: m.menu_dia_id, p_tipo_seleccion: tipo_seleccion,
       p_guisado_id: guisado_id, p_torta_id: torta_id, p_agua_id: agua_id, p_complementos: complementos,
+      p_extra_guisado: extra_guisado, p_extra_complementos: extra_complementos, p_extra_tortas: extra_tortas,
     });
     if (error) { msg.innerHTML = errBox(error.message); return; }
-    msg.innerHTML = okBox("¡Listo! Tu selección quedó guardada. Puedes volver a cambiarla antes del cierre si lo necesitas.");
+
+    const lineas = [];
+    if (tipo_seleccion === "Guisado" && guisado_id) lineas.push("1 " + nombresGuisados[guisado_id]);
+    complementos.forEach(id => lineas.push("1 " + nombresComplementos[id]));
+    if (tipo_seleccion === "Torta" && torta_id) lineas.push("1 " + nombresTortas[torta_id]);
+    if (agua_id) lineas.push("1 " + nombresAguas[agua_id]);
+    if (extra_guisado) lineas.push("1 Extra de guisado");
+    extra_complementos.forEach(id => lineas.push("1 " + nombresComplementos[id]));
+    extra_tortas.forEach(id => lineas.push("1 " + nombresTortas[id]));
+
+    document.getElementById("pedConfirmacion").innerHTML = `
+      <div class="p-4 rounded-xl mt-4" style="background:#E6F0EA; border:1px solid #3F7A5E">
+        <p class="text-sm font-semibold mb-2" style="color:#1C2B3A">${m.nombre_cliente} tu orden quedó de la siguiente manera:</p>
+        <div class="text-sm" style="color:#1C2B3A">${lineas.map(l => `<div>${l}</div>`).join("")}</div>
+      </div>`;
+    msg.innerHTML = okBox("¡Listo! Puedes volver a cambiarla antes del cierre si lo necesitas.");
   });
 }
 
