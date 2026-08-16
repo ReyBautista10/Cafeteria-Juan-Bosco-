@@ -237,11 +237,11 @@ async function init() {
     const lineas = [];
     if (tipo_seleccion === "Guisado" && guisado_id) lineas.push("1 " + nombresGuisados[guisado_id]);
     complementos.forEach(id => lineas.push("1 " + nombresComplementos[id]));
-    if (tipo_seleccion === "Torta" && torta_id) lineas.push("1 " + nombresTortas[torta_id]);
+    if (tipo_seleccion === "Torta" && torta_id) lineas.push("1 Torta " + nombresTortas[torta_id]);
     if (agua_id) lineas.push("1 " + nombresAguas[agua_id]);
     if (extra_guisado) lineas.push("1 Extra de guisado");
     extra_complementos.forEach(id => lineas.push("1 " + nombresComplementos[id]));
-    extra_tortas.forEach(id => lineas.push("1 " + nombresTortas[id]));
+    extra_tortas.forEach(id => lineas.push("1 Torta " + nombresTortas[id]));
 
     document.getElementById("pedConfirmacion").innerHTML = `
       <div class="p-4 rounded-xl mt-4" style="background:#E6F0EA; border:1px solid #3F7A5E">
