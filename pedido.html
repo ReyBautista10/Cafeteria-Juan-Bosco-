@@ -55,11 +55,12 @@ async function init() {
     return;
   }
 
-  const [guisadosFilas, tortas, aguas, compActuales] = await Promise.all([
+  const [guisadosFilas, tortas, aguas, compActuales, extrasActuales] = await Promise.all([
     sb.rpc("menu_dia_guisados_obtener", { p_menu_dia_id: m.menu_dia_id }),
     m.tortas_disponibles && m.tortas_disponibles.length ? sb.rpc("productos_por_ids", { p_ids: m.tortas_disponibles }) : { data: [] },
     m.aguas_disponibles && m.aguas_disponibles.length ? sb.rpc("productos_por_ids", { p_ids: m.aguas_disponibles }) : { data: [] },
     m.pedido_existente_id ? sb.rpc("pedido_complementos_obtener", { p_pedido_id: m.pedido_existente_id }) : { data: [] },
+    m.pedido_existente_id ? sb.rpc("pedido_extras_obtener", { p_pedido_id: m.pedido_existente_id }) : { data: [] },
   ]);
 
   let diagnostico = "";
@@ -67,6 +68,7 @@ async function init() {
   if (tortas.error) diagnostico += "tortas: " + tortas.error.message + " | ";
   if (aguas.error) diagnostico += "aguas: " + aguas.error.message + " | ";
   if (compActuales.error) diagnostico += "complementos actuales: " + compActuales.error.message + " | ";
+  if (extrasActuales.error) diagnostico += "extras actuales: " + extrasActuales.error.message + " | ";
 
   const guisadosMap = {};
   (guisadosFilas.data || []).forEach(f => {
@@ -138,40 +140,94 @@ async function init() {
   const nombresGuisados = {};
   guisados.forEach(g => { nombresGuisados[g.id] = g.nombre; });
 
-  document.getElementById("extraSiBtn").addEventListener("click", () => {
-    document.getElementById("extraSiBtn").style.background = "#1C2B3A";
-    document.getElementById("extraSiBtn").style.color = "#fff";
-    document.getElementById("extraNoBtn").style.background = "#fff";
-    document.getElementById("extraNoBtn").style.color = "#1C2B3A";
+  // Extras ya guardados previamente (si el cliente ya había hecho su pedido antes)
+  const extrasPrevios = extrasActuales.data || [];
+  const extraGuisadoPrevio = extrasPrevios.some(e => e.tipo === "Guisado");
+  const extraComplementosPrevios = extrasPrevios.filter(e => e.tipo === "Complemento").map(e => e.referencia_id);
+  const extraTortasPrevias = extrasPrevios.filter(e => e.tipo === "Torta").map(e => e.referencia_id);
+
+  function pintarExtrasWrap() {
     const wrap = document.getElementById("extrasWrap");
     wrap.style.display = "block";
     wrap.innerHTML = `
       <label class="flex items-center gap-2 text-sm mb-1" style="color:#1C2B3A">
-        <input type="checkbox" id="extraGuisadoChk" />
+        <input type="checkbox" id="extraGuisadoChk" ${extraGuisadoPrevio ? "checked" : ""} />
         Extra de guisado (otra porción del guisado que elegiste)
       </label>
       ${Object.keys(nombresComplementos).length > 0 ? `
         <p class="text-xs font-semibold mt-2 mb-1" style="color:#6C7B8A">Complementos extra</p>
         ${Object.entries(nombresComplementos).map(([id, nombre]) => `
           <label class="flex items-center gap-2 text-sm" style="color:#1C2B3A">
-            <input type="checkbox" class="extraCompChk" value="${id}" /> ${nombre}
+            <input type="checkbox" class="extraCompChk" value="${id}" ${extraComplementosPrevios.includes(id) ? "checked" : ""} /> ${nombre}
           </label>`).join("")}` : ""}
       ${Object.keys(nombresTortas).length > 0 ? `
         <p class="text-xs font-semibold mt-2 mb-1" style="color:#6C7B8A">Tortas extra</p>
         ${Object.entries(nombresTortas).map(([id, nombre]) => `
           <label class="flex items-center gap-2 text-sm" style="color:#1C2B3A">
-            <input type="checkbox" class="extraTortaChk" value="${id}" /> ${nombre}
+            <input type="checkbox" class="extraTortaChk" value="${id}" ${extraTortasPrevias.includes(id) ? "checked" : ""} /> ${nombre}
           </label>`).join("")}` : ""}`;
+  }
+
+  function activarBotonExtras(activo) {
+    const siBtn = document.getElementById("extraSiBtn");
+    const noBtn = document.getElementById("extraNoBtn");
+    siBtn.style.background = activo ? "#1C2B3A" : "#fff";
+    siBtn.style.color = activo ? "#fff" : "#1C2B3A";
+    noBtn.style.background = activo ? "#fff" : "#1C2B3A";
+    noBtn.style.color = activo ? "#1C2B3A" : "#fff";
+  }
+
+  document.getElementById("extraSiBtn").addEventListener("click", () => {
+    activarBotonExtras(true);
+    pintarExtrasWrap();
   });
 
   document.getElementById("extraNoBtn").addEventListener("click", () => {
-    document.getElementById("extraNoBtn").style.background = "#1C2B3A";
-    document.getElementById("extraNoBtn").style.color = "#fff";
-    document.getElementById("extraSiBtn").style.background = "#fff";
-    document.getElementById("extraSiBtn").style.color = "#1C2B3A";
+    activarBotonExtras(false);
     document.getElementById("extrasWrap").style.display = "none";
     document.getElementById("extrasWrap").innerHTML = "";
   });
+
+  // Si ya tenía extras guardados, mostrarlos precargados desde el inicio
+  if (extrasPrevios.length > 0) {
+    activarBotonExtras(true);
+    pintarExtrasWrap();
+  }
+
+  function calcularLineas() {
+    const opcionEl = document.querySelector('input[name="opcion"]:checked');
+    const valor = opcionEl ? opcionEl.value : "Ninguno";
+    const aguaSelId = document.getElementById("aguaSel")?.value || null;
+    const lineas = [];
+
+    if (valor.startsWith("guisado_")) {
+      const gId = valor.replace("guisado_", "");
+      lineas.push("1 " + nombresGuisados[gId]);
+      [...document.querySelectorAll(`.compChk_${gId}:checked`)].forEach(c => lineas.push("1 " + nombresComplementos[c.value]));
+    } else if (valor === "Torta") {
+      const tId = document.getElementById("tortaSel")?.value || null;
+      if (tId) lineas.push("1 Torta " + nombresTortas[tId]);
+    }
+    if (valor.startsWith("guisado_") && aguaSelId) lineas.push("1 " + nombresAguas[aguaSelId]);
+
+    if (document.getElementById("extraGuisadoChk")?.checked) lineas.push("1 Extra de guisado");
+    [...document.querySelectorAll(".extraCompChk:checked")].forEach(c => lineas.push("1 " + nombresComplementos[c.value]));
+    [...document.querySelectorAll(".extraTortaChk:checked")].forEach(c => lineas.push("1 Torta " + nombresTortas[c.value]));
+
+    return lineas;
+  }
+
+  function mostrarResumen() {
+    const lineas = calcularLineas();
+    document.getElementById("pedConfirmacion").innerHTML = `
+      <div class="p-4 rounded-xl mt-4" style="background:#E6F0EA; border:1px solid #3F7A5E">
+        <p class="text-sm font-semibold mb-2" style="color:#1C2B3A">${m.nombre_cliente} tu orden quedó de la siguiente manera:</p>
+        <div class="text-sm" style="color:#1C2B3A">${lineas.map(l => `<div>${l}</div>`).join("")}</div>
+      </div>`;
+  }
+
+  // Si ya tenía un pedido guardado, mostrar su resumen de una vez al entrar
+  if (m.pedido_existente_id) mostrarResumen();
 
   guisados.forEach(g => {
     const el = document.getElementById(`comp_${g.id}`);
@@ -234,20 +290,7 @@ async function init() {
     });
     if (error) { msg.innerHTML = errBox(error.message); return; }
 
-    const lineas = [];
-    if (tipo_seleccion === "Guisado" && guisado_id) lineas.push("1 " + nombresGuisados[guisado_id]);
-    complementos.forEach(id => lineas.push("1 " + nombresComplementos[id]));
-    if (tipo_seleccion === "Torta" && torta_id) lineas.push("1 Torta " + nombresTortas[torta_id]);
-    if (agua_id) lineas.push("1 " + nombresAguas[agua_id]);
-    if (extra_guisado) lineas.push("1 Extra de guisado");
-    extra_complementos.forEach(id => lineas.push("1 " + nombresComplementos[id]));
-    extra_tortas.forEach(id => lineas.push("1 Torta " + nombresTortas[id]));
-
-    document.getElementById("pedConfirmacion").innerHTML = `
-      <div class="p-4 rounded-xl mt-4" style="background:#E6F0EA; border:1px solid #3F7A5E">
-        <p class="text-sm font-semibold mb-2" style="color:#1C2B3A">${m.nombre_cliente} tu orden quedó de la siguiente manera:</p>
-        <div class="text-sm" style="color:#1C2B3A">${lineas.map(l => `<div>${l}</div>`).join("")}</div>
-      </div>`;
+    mostrarResumen();
     msg.innerHTML = okBox("¡Listo! Puedes volver a cambiarla antes del cierre si lo necesitas.");
   });
 }
