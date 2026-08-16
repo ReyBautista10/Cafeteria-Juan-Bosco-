@@ -40,7 +40,8 @@ const MENU = [
   { id: "guisados", label: "Guisados", roles: ["Administrador"] },
   { id: "inventario", label: "Inventario", roles: ["Administrador"] },
   { id: "enviar_guisados", label: "Enviar Guisados", roles: ["Administrador"] },
-  { id: "ordenes_receso", label: "Ordenes Receso", roles: ["Administrador"] },
+  { id: "revisar_pedidos", label: "Revisar Pedidos", roles: ["Administrador"] },
+  { id: "solicitar_ingredientes", label: "Solicitar Ingredientes", roles: ["Administrador"] },
   { id: "reportes", label: "Reportes", roles: ["Administrador"] },
 ];
 
@@ -188,6 +189,8 @@ function renderSeccion() {
   if (state.seccion === "guisados") return renderGuisados(main);
   if (state.seccion === "inventario") return renderInventario(main);
   if (state.seccion === "enviar_guisados") return renderEnviarGuisados(main);
+  if (state.seccion === "revisar_pedidos") return renderRevisarPedidos(main);
+  if (state.seccion === "solicitar_ingredientes") return renderSolicitarIngredientes(main);
   const label = MENU.find(m => m.id === state.seccion)?.label;
   main.innerHTML = `<div class="h-full flex flex-col items-center justify-center text-center" style="color:#6C7B8A">
     <p class="text-sm font-semibold" style="color:#1C2B3A">${label}</p>
@@ -1095,6 +1098,137 @@ function renderGuisadoModificar() {
 }
 
 render();
+// ============================================================
+// Módulo Revisar Pedidos
+// ============================================================
+
+function renderRevisarPedidos(main) {
+  main.innerHTML = `
+    <h2 class="text-lg font-bold mb-4" style="color:#1C2B3A">Revisar Pedidos</h2>
+    <div class="max-w-md p-5 rounded-xl bg-white border mb-4" style="border-color:#E1DED5">
+      <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Fecha del menú</label>
+      <input id="rpFecha" type="date" value="${fechaManana()}" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
+      <button id="rpCargar" class="px-3 py-2 rounded-lg text-xs font-semibold" style="background:#F4F1EB; color:#1C2B3A">Cargar pedidos de este día</button>
+    </div>
+    <div id="rpContenido"></div>`;
+
+  document.getElementById("rpCargar").addEventListener("click", cargarPedidos);
+  cargarPedidos();
+
+  async function cargarPedidos() {
+    const fecha = document.getElementById("rpFecha").value;
+    const cont = document.getElementById("rpContenido");
+    cont.innerHTML = `<p class="text-xs" style="color:#6C7B8A">Cargando…</p>`;
+
+    const { data: md, error: errMd } = await sb.rpc("menu_dia_obtener_por_fecha", { p_fecha: fecha });
+    if (errMd) { cont.innerHTML = errBox(errMd.message); return; }
+    if (!md || !md[0]) { cont.innerHTML = `<p class="text-xs" style="color:#6C7B8A">No hay ningún menú creado para esa fecha.</p>`; return; }
+    if (md[0].estado !== "Confirmado") { cont.innerHTML = `<p class="text-xs" style="color:#B5453A">Este menú todavía no está Confirmado, así que no puede tener pedidos.</p>`; return; }
+
+    const menuDiaId = md[0].id;
+    const [resumen, detalle, clientes] = await Promise.all([
+      sb.rpc("pedidos_resumen", { p_menu_dia_id: menuDiaId }),
+      sb.rpc("pedidos_revisar", { p_menu_dia_id: menuDiaId }),
+      sb.rpc("clientes_para_envio", { p_menu_dia_id: menuDiaId }),
+    ]);
+
+    if (resumen.error || detalle.error || clientes.error) {
+      cont.innerHTML = errBox([resumen.error, detalle.error, clientes.error].filter(Boolean).map(e => e.message).join(" | "));
+      return;
+    }
+
+    const sinResponder = (clientes.data || []).filter(c => !c.ya_respondio).length;
+    const filas = detalle.data || [];
+
+    cont.innerHTML = `
+      <div class="max-w-md p-5 rounded-xl bg-white border mb-4" style="border-color:#E1DED5">
+        <p class="text-sm font-bold mb-2" style="color:#1C2B3A">Resumen (${filas.length} pedidos capturados, ${sinResponder} sin responder)</p>
+        <div class="flex flex-col gap-1">
+          ${(resumen.data || []).map(r => `
+            <div class="flex justify-between text-sm" style="color:#1C2B3A">
+              <span>${r.descripcion}</span><span class="jb-mono font-semibold">${r.cantidad}</span>
+            </div>`).join("") || `<p class="text-xs" style="color:#6C7B8A">Sin datos todavía.</p>`}
+        </div>
+      </div>
+
+      <div class="max-w-md">
+        <input id="rpBuscar" placeholder="Buscar cliente por nombre…" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border bg-white" style="border-color:#E1DED5" />
+        <div id="rpLista" class="flex flex-col gap-2"></div>
+      </div>`;
+
+    function pintarLista(filtro) {
+      const lista = document.getElementById("rpLista");
+      const filtradas = filas.filter(f => !filtro || f.nombre_cliente.toLowerCase().includes(filtro.toLowerCase()));
+      lista.innerHTML = filtradas.map(f => `
+        <div class="p-3 rounded-lg bg-white border" style="border-color:#E1DED5">
+          <div class="flex justify-between">
+            <span class="text-sm font-semibold" style="color:#1C2B3A">${f.nombre_cliente}</span>
+            <span class="text-xs jb-mono" style="color:#6C7B8A">${f.id_cliente}</span>
+          </div>
+          <div class="text-xs mt-1" style="color:#1C2B3A">
+            ${f.tipo_seleccion === "Guisado" ? f.guisado_nombre : f.tipo_seleccion === "Torta" ? "Torta " + f.torta_nombre : "No consumirá"}
+            ${f.agua_nombre ? " · " + f.agua_nombre : ""}
+          </div>
+          ${f.complementos ? `<div class="text-xs" style="color:#6C7B8A">Complementos: ${f.complementos}</div>` : ""}
+          ${f.extras ? `<div class="text-xs" style="color:#B8862E">Extras: ${f.extras}</div>` : ""}
+        </div>`).join("") || `<p class="text-xs" style="color:#6C7B8A">Sin resultados.</p>`;
+    }
+    pintarLista("");
+    document.getElementById("rpBuscar").addEventListener("input", (e) => pintarLista(e.target.value));
+  }
+}
+
+// ============================================================
+// Módulo Solicitar Ingredientes
+// ============================================================
+
+function renderSolicitarIngredientes(main) {
+  main.innerHTML = `
+    <h2 class="text-lg font-bold mb-4" style="color:#1C2B3A">Solicitar Ingredientes</h2>
+    <div class="max-w-md p-5 rounded-xl bg-white border mb-4" style="border-color:#E1DED5">
+      <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Fecha del menú</label>
+      <input id="siFecha" type="date" value="${fechaManana()}" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
+      <button id="siCargar" class="px-3 py-2 rounded-lg text-xs font-semibold" style="background:#F4F1EB; color:#1C2B3A">Calcular ingredientes</button>
+    </div>
+    <div id="siContenido"></div>`;
+
+  document.getElementById("siCargar").addEventListener("click", calcular);
+  calcular();
+
+  async function calcular() {
+    const fecha = document.getElementById("siFecha").value;
+    const cont = document.getElementById("siContenido");
+    cont.innerHTML = `<p class="text-xs" style="color:#6C7B8A">Calculando…</p>`;
+
+    const { data: md, error: errMd } = await sb.rpc("menu_dia_obtener_por_fecha", { p_fecha: fecha });
+    if (errMd) { cont.innerHTML = errBox(errMd.message); return; }
+    if (!md || !md[0]) { cont.innerHTML = `<p class="text-xs" style="color:#6C7B8A">No hay ningún menú creado para esa fecha.</p>`; return; }
+    if (md[0].estado !== "Confirmado") { cont.innerHTML = `<p class="text-xs" style="color:#B5453A">Este menú todavía no está Confirmado.</p>`; return; }
+
+    const { data, error } = await sb.rpc("ingredientes_calcular", { p_menu_dia_id: md[0].id });
+    if (error) { cont.innerHTML = errBox(error.message); return; }
+
+    const porGuisado = {};
+    (data || []).forEach(f => {
+      if (!porGuisado[f.guisado_id]) porGuisado[f.guisado_id] = { nombre: f.guisado_nombre, total: f.total_ordenes, ingredientes: [] };
+      if (f.ingrediente) porGuisado[f.guisado_id].ingredientes.push({ nombre: f.ingrediente, cantidad: f.cantidad, unidad: f.unidad });
+    });
+    const grupos = Object.values(porGuisado);
+
+    cont.innerHTML = grupos.length === 0
+      ? `<p class="text-xs" style="color:#6C7B8A">No hay guisados en este menú.</p>`
+      : grupos.map(g => `
+        <div class="max-w-md p-5 rounded-xl bg-white border mb-3" style="border-color:#E1DED5">
+          <p class="text-sm font-bold mb-2" style="color:#1C2B3A">${g.nombre} — ${g.total} ${g.total == 1 ? "orden" : "órdenes"} (incluye extras)</p>
+          ${g.ingredientes.length === 0 ? `<p class="text-xs" style="color:#6C7B8A">Sin receta capturada para este guisado.</p>` :
+            g.ingredientes.map(i => `
+              <div class="flex justify-between text-sm" style="color:#1C2B3A">
+                <span>${i.nombre}</span><span class="jb-mono">${i.cantidad} ${i.unidad}</span>
+              </div>`).join("")}
+        </div>`).join("");
+  }
+}
+
 // ============================================================
 // Módulo Enviar Guisados
 // ============================================================
