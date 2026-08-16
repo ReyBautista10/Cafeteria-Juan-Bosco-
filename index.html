@@ -1133,9 +1133,9 @@ function renderEnviarGuisados(main) {
     const cont = document.getElementById("egForm");
     cont.innerHTML = `<p class="text-xs" style="color:#6C7B8A">Cargando…</p>`;
 
-    const [bebidas, alimentos] = await Promise.all([
+    const [bebidas, tortasProductos] = await Promise.all([
       sb.rpc("productos_buscar", { p_criterio: "Bebida" }),
-      sb.rpc("productos_buscar", { p_criterio: "Alimento" }),
+      sb.rpc("productos_buscar", { p_criterio: "Torta" }),
     ]);
 
     const esConfirmado = existente && existente.estado === "Confirmado";
@@ -1162,11 +1162,11 @@ function renderEnviarGuisados(main) {
         <div id="egGuisadosLista"></div>
 
         <label class="block text-xs font-semibold mb-1 mt-3" style="color:#6C7B8A">Tortas disponibles</label>
-        <div class="mb-3">${(alimentos.data || []).map(p => `
+        <div class="mb-3">${(tortasProductos.data || []).map(p => `
           <label class="flex items-center gap-2 text-sm" style="color:#1C2B3A">
             <input type="checkbox" class="tortaChk" value="${p.id}" ${existente && existente.tortas_disponibles && existente.tortas_disponibles.includes(p.id) ? "checked" : ""} ${esConfirmado ? "disabled" : ""} />
             ${p.nombre_producto}
-          </label>`).join("") || `<p class="text-xs" style="color:#6C7B8A">No hay productos tipo Alimento registrados.</p>`}
+          </label>`).join("") || `<p class="text-xs" style="color:#6C7B8A">No hay productos tipo Torta registrados. Ve a Inventario → Alta para agregarlos.</p>`}
         </div>
 
         <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Aguas disponibles</label>
@@ -1230,7 +1230,7 @@ function renderEnviarGuisados(main) {
       }
       el.innerHTML = lista.map(c => `
         <label class="flex items-center gap-2 text-xs" style="color:#1C2B3A">
-          <input type="checkbox" class="compDelGuisado_${guisadoId}" value="${c.id}" ${seleccionadosPrevios.includes(c.id) ? "checked" : ""} ${esConfirmado ? "disabled" : ""} />
+          <input type="checkbox" class="compDelGuisado_${guisadoId}" value="${c.complemento_id}" ${seleccionadosPrevios.includes(c.complemento_id) ? "checked" : ""} ${esConfirmado ? "disabled" : ""} />
           ${c.nombre_complemento}
         </label>`).join("");
     }
@@ -1323,7 +1323,7 @@ function renderEnviarGuisados(main) {
 // Módulo Inventario / Productos
 // ============================================================
 
-const CATEGORIAS_PRODUCTO = ["Bebida", "Botana", "Alimento"];
+const CATEGORIAS_PRODUCTO = ["Bebida", "Botana", "Alimento", "Torta"];
 
 function renderInventario(main) {
   let html = `<h2 class="text-lg font-bold mb-4" style="color:#1C2B3A">Inventario</h2>`;
