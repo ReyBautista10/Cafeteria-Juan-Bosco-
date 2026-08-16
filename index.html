@@ -8,6 +8,7 @@
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode@1.4.4/build/qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <style>
@@ -190,6 +191,7 @@ function renderSeccion() {
   if (state.seccion === "inventario") return renderInventario(main);
   if (state.seccion === "enviar_guisados") return renderEnviarGuisados(main);
   if (state.seccion === "revisar_pedidos") return renderRevisarPedidos(main);
+  if (state.seccion === "venta_receso") return renderVentaReceso(main);
   if (state.seccion === "solicitar_ingredientes") return renderSolicitarIngredientes(main);
   const label = MENU.find(m => m.id === state.seccion)?.label;
   main.innerHTML = `<div class="h-full flex flex-col items-center justify-center text-center" style="color:#6C7B8A">
@@ -1098,6 +1100,148 @@ function renderGuisadoModificar() {
 }
 
 render();
+// ============================================================
+// Módulo Venta Receso
+// ============================================================
+
+let vrStreamActivo = null;
+
+function detenerCamaraVR() {
+  if (vrStreamActivo) {
+    vrStreamActivo.getTracks().forEach(t => t.stop());
+    vrStreamActivo = null;
+  }
+}
+
+function renderVentaReceso(main) {
+  detenerCamaraVR();
+  main.innerHTML = `
+    <h2 class="text-lg font-bold mb-4" style="color:#1C2B3A">Venta Receso</h2>
+    <div class="max-w-md">
+      <div class="p-4 rounded-xl bg-white border mb-3" style="border-color:#E1DED5">
+        <p class="text-sm font-semibold mb-2" style="color:#1C2B3A">Escanear gafete (QR)</p>
+        <video id="vrVideo" class="w-full rounded-lg bg-black" style="max-height:260px; object-fit:cover" playsinline muted></video>
+        <canvas id="vrCanvas" style="display:none"></canvas>
+        <button id="vrIniciar" class="w-full mt-2 py-2 rounded-lg text-sm font-semibold" style="background:#1C2B3A; color:#F4F1EB">Activar cámara</button>
+        <p id="vrCamMsg" class="text-xs mt-2" style="color:#B5453A"></p>
+      </div>
+
+      <div class="p-4 rounded-xl bg-white border mb-3" style="border-color:#E1DED5">
+        <p class="text-sm font-semibold mb-2" style="color:#1C2B3A">O buscar manualmente</p>
+        <div class="flex gap-2">
+          <input id="vrBuscarInput" placeholder="Nombre o folio del alumno…" class="flex-1 px-3 py-2 rounded-lg text-sm outline-none border" style="border-color:#E1DED5" />
+          <button id="vrBuscarBtn" class="px-3 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">Buscar</button>
+        </div>
+        <div id="vrResultadosBusqueda" class="mt-2"></div>
+      </div>
+
+      <div id="vrResultado"></div>
+    </div>`;
+
+  document.getElementById("vrIniciar").addEventListener("click", iniciarCamara);
+  document.getElementById("vrBuscarBtn").addEventListener("click", buscarManual);
+  document.getElementById("vrBuscarInput").addEventListener("keydown", (e) => { if (e.key === "Enter") buscarManual(); });
+
+  async function iniciarCamara() {
+    const msg = document.getElementById("vrCamMsg");
+    msg.textContent = "";
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      vrStreamActivo = stream;
+      const video = document.getElementById("vrVideo");
+      video.srcObject = stream;
+      await video.play();
+      requestAnimationFrame(escanearCuadro);
+    } catch (err) {
+      msg.textContent = "No se pudo activar la cámara: " + err.message + ". Usa la búsqueda manual de abajo.";
+    }
+  }
+
+  function escanearCuadro() {
+    if (!vrStreamActivo) return;
+    const video = document.getElementById("vrVideo");
+    const canvas = document.getElementById("vrCanvas");
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const codigo = jsQR(imageData.data, imageData.width, imageData.height);
+      if (codigo && codigo.data) {
+        detenerCamaraVR();
+        procesarToken(codigo.data);
+        return;
+      }
+    }
+    requestAnimationFrame(escanearCuadro);
+  }
+
+  async function buscarManual() {
+    const criterio = document.getElementById("vrBuscarInput").value.trim();
+    const cont = document.getElementById("vrResultadosBusqueda");
+    if (!criterio) { cont.innerHTML = ""; return; }
+    cont.innerHTML = `<p class="text-xs" style="color:#6C7B8A">Buscando…</p>`;
+    const { data, error } = await sb.rpc("venta_receso_buscar", { p_criterio: criterio });
+    if (error) { cont.innerHTML = errBox(error.message); return; }
+    const lista = data || [];
+    cont.innerHTML = lista.length === 0
+      ? `<p class="text-xs" style="color:#6C7B8A">Sin resultados.</p>`
+      : lista.map((r, i) => `
+        <button class="vrResBtn w-full text-left px-3 py-2 rounded-lg text-sm bg-white border mb-1" data-idx="${i}" style="border-color:#E1DED5; color:#1C2B3A">
+          ${r.nombre_cliente} <span class="text-xs jb-mono" style="color:#6C7B8A">(${r.id_cliente})</span>
+        </button>`).join("");
+    cont.querySelectorAll(".vrResBtn").forEach(b => b.addEventListener("click", () => mostrarResultado(lista[Number(b.dataset.idx)])));
+  }
+
+  async function procesarToken(token) {
+    const { data, error } = await sb.rpc("venta_receso_por_qr", { p_qr_token: token });
+    if (error) { document.getElementById("vrResultado").innerHTML = errBox(error.message); return; }
+    if (!data || !data[0]) { document.getElementById("vrResultado").innerHTML = errBox("QR no reconocido."); return; }
+    mostrarResultado(data[0]);
+  }
+
+  function mostrarResultado(r) {
+    const cont = document.getElementById("vrResultado");
+    if (!r.pedido_id) {
+      cont.innerHTML = `
+        <div class="p-4 rounded-xl mt-3" style="background:#F5E4E1; border:1px solid #B5453A">
+          <p class="text-sm font-semibold" style="color:#1C2B3A">${r.nombre_cliente}</p>
+          <p class="text-xs mt-1" style="color:#B5453A">No tiene un pedido capturado para hoy.</p>
+        </div>`;
+      return;
+    }
+    const yaSurtido = r.estado_pedido === "Surtido";
+    cont.innerHTML = `
+      <div class="p-4 rounded-xl mt-3 bg-white border" style="border-color:#E1DED5">
+        <p class="text-base font-bold mb-1" style="color:#1C2B3A">${r.nombre_cliente}</p>
+        <p class="text-sm mb-1" style="color:#1C2B3A">
+          ${r.tipo_seleccion === "Guisado" ? r.guisado_nombre : r.tipo_seleccion === "Torta" ? "Torta " + r.torta_nombre : "No consumirá"}
+        </p>
+        ${r.agua_nombre ? `<p class="text-xs" style="color:#6C7B8A">${r.agua_nombre}</p>` : ""}
+        ${r.complementos ? `<p class="text-xs" style="color:#6C7B8A">Complementos: ${r.complementos}</p>` : ""}
+        ${r.extras ? `<p class="text-xs" style="color:#B8862E">Extras: ${r.extras}</p>` : ""}
+        <div id="vrAccionMsg" class="mt-2"></div>
+        ${yaSurtido
+          ? `<div class="mt-2 text-xs p-2 rounded-lg" style="background:#F5E4E1; color:#B5453A">Este pedido YA fue entregado anteriormente.</div>`
+          : `<button id="vrConfirmarBtn" class="w-full mt-2 py-2 rounded-lg text-sm font-bold" style="background:#3F7A5E; color:#fff">Confirmar entrega</button>`}
+        <button id="vrOtro" class="w-full mt-2 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">Escanear otro / buscar otro</button>
+      </div>`;
+
+    document.getElementById("vrOtro").addEventListener("click", () => renderVentaReceso(document.getElementById("main")));
+
+    if (!yaSurtido) {
+      document.getElementById("vrConfirmarBtn").addEventListener("click", async () => {
+        const { data, error } = await sb.rpc("venta_receso_marcar_surtido", { p_pedido_id: r.pedido_id, p_cajero_id: state.usuario.id });
+        const msg = document.getElementById("vrAccionMsg");
+        if (error) { msg.innerHTML = errBox(error.message); return; }
+        msg.innerHTML = okBox(`Entregado. Folio ${data[0].folio_venta} — Total $${data[0].total}`);
+        document.getElementById("vrConfirmarBtn").remove();
+      });
+    }
+  }
+}
+
 // ============================================================
 // Módulo Revisar Pedidos
 // ============================================================
