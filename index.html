@@ -1265,16 +1265,26 @@ function renderEnviarGuisados(main) {
       msg.innerHTML = "";
       if (!dia || dia < 1 || dia > 26) { msg.innerHTML = errBox("El día debe estar entre 1 y 26."); throw new Error("validación"); }
       if (guisadosMarcados.length === 0) { msg.innerHTML = errBox("Marca al menos un guisado a ofrecer."); throw new Error("validación"); }
+      if (!fecha) { msg.innerHTML = errBox("Error interno: la fecha no está definida. Recarga la página e inténtalo de nuevo."); throw new Error("validación"); }
 
       const guisadosPayload = guisadosMarcados.map(chk => ({
         guisado_id: chk.value,
-        complementos: [...document.querySelectorAll(`.compDelGuisado_${chk.value}:checked`)].map(c => c.value),
+        complementos: [...document.querySelectorAll(`.compDelGuisado_${CSS.escape(chk.value)}:checked`)].map(c => c.value),
       }));
+
+      const idsInvalidos = guisadosPayload.filter(g => !g.guisado_id || g.guisado_id === "undefined" || g.guisado_id.length < 30);
+      if (idsInvalidos.length > 0) {
+        msg.innerHTML = errBox("Diagnóstico: se detectó un guisado sin id válido antes de enviar. Datos: " + JSON.stringify(guisadosPayload));
+        throw new Error("validación");
+      }
 
       const { error } = await sb.rpc("menu_dia_guardar", {
         p_fecha: fecha, p_dia_guisado: dia, p_guisados: guisadosPayload, p_tortas: tortas, p_aguas: aguas,
       });
-      if (error) { msg.innerHTML = errBox(error.message); throw error; }
+      if (error) {
+        msg.innerHTML = errBox(error.message + " — Datos enviados: " + JSON.stringify({ fecha, dia, guisadosPayload, tortas, aguas }));
+        throw error;
+      }
       msg.innerHTML = okBox("Borrador guardado.");
     }
 
