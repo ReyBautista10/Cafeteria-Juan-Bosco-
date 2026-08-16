@@ -62,6 +62,12 @@ async function init() {
     m.pedido_existente_id ? sb.rpc("pedido_complementos_obtener", { p_pedido_id: m.pedido_existente_id }) : { data: [] },
   ]);
 
+  let diagnostico = "";
+  if (guisadosFilas.error) diagnostico += "guisados: " + guisadosFilas.error.message + " | ";
+  if (tortas.error) diagnostico += "tortas: " + tortas.error.message + " | ";
+  if (aguas.error) diagnostico += "aguas: " + aguas.error.message + " | ";
+  if (compActuales.error) diagnostico += "complementos actuales: " + compActuales.error.message + " | ";
+
   const guisadosMap = {};
   (guisadosFilas.data || []).forEach(f => {
     if (!guisadosMap[f.guisado_id]) guisadosMap[f.guisado_id] = { id: f.guisado_id, nombre: f.nombre_guisado, complementos: [] };
@@ -72,7 +78,7 @@ async function init() {
   const compSeleccionados = (compActuales.data || []).map(c => c.complemento_id);
   const cierre = new Date(m.cierre_pedidos_ts);
 
-  app.innerHTML = header + `
+  app.innerHTML = header + (diagnostico ? errBox("Diagnóstico: " + diagnostico) : "") + `
     <div class="p-4 rounded-xl mb-4" style="background:#fff; border:1px solid #E1DED5">
       <p class="text-xs mb-3" style="color:#6C7B8A">Puedes cambiar tu selección hasta las ${cierre.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })} de hoy.</p>
 
@@ -123,6 +129,16 @@ async function init() {
       chk.addEventListener("change", () => {
         const marcados = el.querySelectorAll(`.compChk_${g.id}:checked`);
         if (marcados.length > 2) chk.checked = false;
+      });
+    });
+  });
+
+  document.querySelectorAll('input[name="opcion"]').forEach(radio => {
+    radio.addEventListener("change", () => {
+      guisados.forEach(g => {
+        if (`guisado_${g.id}` !== radio.value) {
+          document.querySelectorAll(`.compChk_${g.id}`).forEach(chk => { chk.checked = false; });
+        }
       });
     });
   });
