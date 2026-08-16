@@ -55,13 +55,19 @@ async function init() {
     return;
   }
 
-  const [g1c, g2c, tortas, aguas, compActuales] = await Promise.all([
-    m.complementos_g1_disponibles && m.complementos_g1_disponibles.length ? sb.rpc("complementos_por_ids", { p_ids: m.complementos_g1_disponibles }) : { data: [] },
-    m.complementos_g2_disponibles && m.complementos_g2_disponibles.length ? sb.rpc("complementos_por_ids", { p_ids: m.complementos_g2_disponibles }) : { data: [] },
+  const [guisadosFilas, tortas, aguas, compActuales] = await Promise.all([
+    sb.rpc("menu_dia_guisados_obtener", { p_menu_dia_id: m.menu_dia_id }),
     m.tortas_disponibles && m.tortas_disponibles.length ? sb.rpc("productos_por_ids", { p_ids: m.tortas_disponibles }) : { data: [] },
     m.aguas_disponibles && m.aguas_disponibles.length ? sb.rpc("productos_por_ids", { p_ids: m.aguas_disponibles }) : { data: [] },
     m.pedido_existente_id ? sb.rpc("pedido_complementos_obtener", { p_pedido_id: m.pedido_existente_id }) : { data: [] },
   ]);
+
+  const guisadosMap = {};
+  (guisadosFilas.data || []).forEach(f => {
+    if (!guisadosMap[f.guisado_id]) guisadosMap[f.guisado_id] = { id: f.guisado_id, nombre: f.nombre_guisado, complementos: [] };
+    if (f.complemento_id) guisadosMap[f.guisado_id].complementos.push({ id: f.complemento_id, nombre: f.complemento_nombre });
+  });
+  const guisados = Object.values(guisadosMap);
 
   const compSeleccionados = (compActuales.data || []).map(c => c.complemento_id);
   const cierre = new Date(m.cierre_pedidos_ts);
@@ -70,21 +76,17 @@ async function init() {
     <div class="p-4 rounded-xl mb-4" style="background:#fff; border:1px solid #E1DED5">
       <p class="text-xs mb-3" style="color:#6C7B8A">Puedes cambiar tu selección hasta las ${cierre.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })} de hoy.</p>
 
-      <label class="flex items-start gap-2 p-2 rounded-lg mb-2" style="background:#F4F1EB">
-        <input type="radio" name="opcion" value="Guisado1" ${m.opcion_actual === "Guisado1" ? "checked" : ""} />
-        <span class="text-sm font-semibold" style="color:#1C2B3A">${m.guisado_1_nombre}</span>
-      </label>
-      <div id="compG1" class="ml-6 mb-2"></div>
-
-      <label class="flex items-start gap-2 p-2 rounded-lg mb-2" style="background:#F4F1EB">
-        <input type="radio" name="opcion" value="Guisado2" ${m.opcion_actual === "Guisado2" ? "checked" : ""} />
-        <span class="text-sm font-semibold" style="color:#1C2B3A">${m.guisado_2_nombre}</span>
-      </label>
-      <div id="compG2" class="ml-6 mb-2"></div>
+      ${guisados.map(g => `
+        <label class="flex items-start gap-2 p-2 rounded-lg mb-1" style="background:#F4F1EB">
+          <input type="radio" name="opcion" value="guisado_${g.id}" ${m.tipo_seleccion_actual === "Guisado" && m.guisado_actual === g.id ? "checked" : ""} />
+          <span class="text-sm font-semibold" style="color:#1C2B3A">${g.nombre}</span>
+        </label>
+        <div id="comp_${g.id}" class="ml-6 mb-2"></div>
+      `).join("")}
 
       ${(tortas.data || []).length > 0 ? `
       <label class="flex items-start gap-2 p-2 rounded-lg mb-2" style="background:#F4F1EB">
-        <input type="radio" name="opcion" value="Torta" ${m.opcion_actual === "Torta" ? "checked" : ""} />
+        <input type="radio" name="opcion" value="Torta" ${m.tipo_seleccion_actual === "Torta" ? "checked" : ""} />
         <span class="text-sm font-semibold" style="color:#1C2B3A">Torta</span>
       </label>
       <div class="ml-6 mb-2">
@@ -94,7 +96,7 @@ async function init() {
       </div>` : ""}
 
       <label class="flex items-start gap-2 p-2 rounded-lg mb-3" style="background:#F4F1EB">
-        <input type="radio" name="opcion" value="Ninguno" ${m.opcion_actual === "Ninguno" || !m.opcion_actual ? "checked" : ""} />
+        <input type="radio" name="opcion" value="Ninguno" ${m.tipo_seleccion_actual === "Ninguno" || !m.tipo_seleccion_actual ? "checked" : ""} />
         <span class="text-sm font-semibold" style="color:#1C2B3A">No consumirá</span>
       </label>
 
@@ -109,45 +111,49 @@ async function init() {
       <button id="pedGuardar" class="w-full py-2.5 rounded-lg text-sm font-bold" style="background:#1C2B3A; color:#F4F1EB">Guardar selección</button>
     </div>`;
 
-  function pintarComplementos(contId, lista, maxSeleccion) {
-    const el = document.getElementById(contId);
-    if (!lista || lista.length === 0) { el.innerHTML = ""; return; }
-    el.innerHTML = lista.map(c => `
+  guisados.forEach(g => {
+    const el = document.getElementById(`comp_${g.id}`);
+    if (g.complementos.length === 0) { el.innerHTML = ""; return; }
+    el.innerHTML = g.complementos.map(c => `
       <label class="flex items-center gap-2 text-xs" style="color:#1C2B3A">
-        <input type="checkbox" class="compChk_${contId}" value="${c.id}" ${compSeleccionados.includes(c.id) ? "checked" : ""} />
-        ${c.nombre_complemento}
+        <input type="checkbox" class="compChk_${g.id}" value="${c.id}" ${compSeleccionados.includes(c.id) && m.guisado_actual === g.id ? "checked" : ""} />
+        ${c.nombre}
       </label>`).join("");
-    el.querySelectorAll(`.compChk_${contId}`).forEach(chk => {
+    el.querySelectorAll(`.compChk_${g.id}`).forEach(chk => {
       chk.addEventListener("change", () => {
-        const marcados = el.querySelectorAll(`.compChk_${contId}:checked`);
+        const marcados = el.querySelectorAll(`.compChk_${g.id}:checked`);
         if (marcados.length > 2) chk.checked = false;
       });
     });
-  }
-  pintarComplementos("compG1", g1c.data, 2);
-  pintarComplementos("compG2", g2c.data, 2);
+  });
 
   document.getElementById("pedGuardar").addEventListener("click", async () => {
     const opcionEl = document.querySelector('input[name="opcion"]:checked');
-    const opcion = opcionEl ? opcionEl.value : "Ninguno";
+    const valor = opcionEl ? opcionEl.value : "Ninguno";
     const msg = document.getElementById("pedMsg");
     msg.innerHTML = "";
 
-    let complementos = [];
+    let tipo_seleccion = "Ninguno";
+    let guisado_id = null;
     let torta_id = null;
     let agua_id = document.getElementById("aguaSel")?.value || null;
+    let complementos = [];
 
-    if (opcion === "Guisado1") complementos = [...document.querySelectorAll(".compChk_compG1:checked")].map(c => c.value);
-    if (opcion === "Guisado2") complementos = [...document.querySelectorAll(".compChk_compG2:checked")].map(c => c.value);
-    if (opcion === "Torta") {
+    if (valor.startsWith("guisado_")) {
+      tipo_seleccion = "Guisado";
+      guisado_id = valor.replace("guisado_", "");
+      complementos = [...document.querySelectorAll(`.compChk_${guisado_id}:checked`)].map(c => c.value);
+    } else if (valor === "Torta") {
+      tipo_seleccion = "Torta";
       torta_id = document.getElementById("tortaSel")?.value || null;
       agua_id = null;
+    } else {
+      agua_id = null;
     }
-    if (opcion === "Ninguno") { agua_id = null; }
 
     const { error } = await sb.rpc("pedido_guardar", {
-      p_token: token, p_menu_dia_id: m.menu_dia_id, p_opcion: opcion,
-      p_torta_id: torta_id, p_agua_id: agua_id, p_complementos: complementos,
+      p_token: token, p_menu_dia_id: m.menu_dia_id, p_tipo_seleccion: tipo_seleccion,
+      p_guisado_id: guisado_id, p_torta_id: torta_id, p_agua_id: agua_id, p_complementos: complementos,
     });
     if (error) { msg.innerHTML = errBox(error.message); return; }
     msg.innerHTML = okBox("¡Listo! Tu selección quedó guardada. Puedes volver a cambiarla antes del cierre si lo necesitas.");

@@ -1140,6 +1140,18 @@ function renderEnviarGuisados(main) {
 
     const esConfirmado = existente && existente.estado === "Confirmado";
 
+    // Mapa en memoria: guisadoId -> array de complementoId marcados como disponibles hoy
+    let seleccionGuisados = {};
+    if (existente) {
+      const { data: filas, error: errG } = await sb.rpc("menu_dia_guisados_obtener", { p_menu_dia_id: existente.id });
+      if (!errG) {
+        (filas || []).forEach(f => {
+          if (!seleccionGuisados[f.guisado_id]) seleccionGuisados[f.guisado_id] = { nombre: f.nombre_guisado, complementos: [] };
+          if (f.complemento_id) seleccionGuisados[f.guisado_id].complementos.push(f.complemento_id);
+        });
+      }
+    }
+
     cont.innerHTML = `
       <div class="max-w-md p-5 rounded-xl bg-white border mb-4" style="border-color:#E1DED5">
         ${esConfirmado ? `<div class="mb-3 text-xs p-2 rounded-lg" style="background:#E6F0EA; color:#3F7A5E">Este menú ya está Confirmado. Solo puedes verlo.</div>` : ""}
@@ -1147,9 +1159,7 @@ function renderEnviarGuisados(main) {
         <input id="egDia" type="number" min="1" max="26" ${esConfirmado ? "disabled" : ""} value="${existente ? existente.dia_guisado : ""}" class="w-full px-3 py-2 rounded-lg text-sm mb-2 outline-none border" style="border-color:#E1DED5" />
         <button id="egBuscarDia" ${esConfirmado ? "disabled" : ""} class="px-3 py-1.5 rounded-lg text-xs font-semibold mb-3" style="background:#F4F1EB; color:#1C2B3A">Buscar guisados de ese día</button>
 
-        <div id="egGuisadosSel"></div>
-        <div id="egCompG1Wrap"></div>
-        <div id="egCompG2Wrap"></div>
+        <div id="egGuisadosLista"></div>
 
         <label class="block text-xs font-semibold mb-1 mt-3" style="color:#6C7B8A">Tortas disponibles</label>
         <div class="mb-3">${(alimentos.data || []).map(p => `
@@ -1176,65 +1186,66 @@ function renderEnviarGuisados(main) {
       </div>
       <div id="egEnvio"></div>`;
 
-    let guisado1Sel = existente ? existente.guisado_1_id : null;
-    let guisado2Sel = existente ? existente.guisado_2_id : null;
-
-    async function mostrarSelectoresGuisado(dia) {
-      const { data } = await sb.rpc("guisados_del_dia", { p_dia: dia });
-      const lista = data || [];
-      const wrap = document.getElementById("egGuisadosSel");
-      wrap.innerHTML = `
-        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Guisado 1</label>
-        <select id="egG1" ${esConfirmado ? "disabled" : ""} class="w-full px-3 py-2 rounded-lg text-sm mb-2 outline-none border" style="border-color:#E1DED5">
-          ${lista.map(g => `<option value="${g.id}" ${g.id === guisado1Sel ? "selected" : ""}>${g.nombre_guisado}</option>`).join("")}
-        </select>
-        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Guisado 2</label>
-        <select id="egG2" ${esConfirmado ? "disabled" : ""} class="w-full px-3 py-2 rounded-lg text-sm mb-2 outline-none border" style="border-color:#E1DED5">
-          ${lista.map(g => `<option value="${g.id}" ${g.id === guisado2Sel ? "selected" : ""}>${g.nombre_guisado}</option>`).join("")}
-        </select>
-        ${lista.length === 0 ? `<p class="text-xs" style="color:#B5453A">No hay guisados registrados para ese día.</p>` : ""}`;
-
-      const g1Actual = document.getElementById("egG1")?.value;
-      const g2Actual = document.getElementById("egG2")?.value;
-      await cargarComplementosDisponibles("egCompG1Wrap", "Guisado 1", g1Actual, existente ? existente.complementos_g1_disponibles || [] : []);
-      await cargarComplementosDisponibles("egCompG2Wrap", "Guisado 2", g2Actual, existente ? existente.complementos_g2_disponibles || [] : []);
-
-      if (!esConfirmado) {
-        document.getElementById("egG1")?.addEventListener("change", (e) => cargarComplementosDisponibles("egCompG1Wrap", "Guisado 1", e.target.value, []));
-        document.getElementById("egG2")?.addEventListener("change", (e) => cargarComplementosDisponibles("egCompG2Wrap", "Guisado 2", e.target.value, []));
-      }
-    }
-
-    async function cargarComplementosDisponibles(contId, etiqueta, guisadoId, seleccionadosPrevios) {
-      const el = document.getElementById(contId);
-      if (!guisadoId) { el.innerHTML = ""; return; }
-      const { data } = await sb.rpc("guisados_complementos_obtener", { p_guisado_id: guisadoId });
+    async function buscarGuisadosDelDia(dia) {
+      const lista_wrap = document.getElementById("egGuisadosLista");
+      lista_wrap.innerHTML = `<p class="text-xs" style="color:#6C7B8A">Buscando…</p>`;
+      const { data, error } = await sb.rpc("guisados_del_dia", { p_dia: dia });
+      if (error) { lista_wrap.innerHTML = errBox("No se pudieron cargar los guisados: " + error.message); return; }
       const lista = data || [];
       if (lista.length === 0) {
-        el.innerHTML = `<p class="text-xs mt-1" style="color:#6C7B8A">${etiqueta}: no tiene complementos compatibles registrados.</p>`;
+        lista_wrap.innerHTML = `<p class="text-xs mb-2" style="color:#B5453A">No hay guisados registrados para el día ${dia}. Ve a Guisados → Alta para registrar alguno con ese día.</p>`;
         return;
       }
-      el.innerHTML = `<label class="block text-xs font-semibold mb-1 mt-2" style="color:#6C7B8A">Complementos disponibles HOY para ${etiqueta} (de los compatibles con la receta)</label>
-        <div class="flex flex-col gap-1 mb-2">
-          ${lista.map(c => `
-            <label class="flex items-center gap-2 text-xs" style="color:#1C2B3A">
-              <input type="checkbox" class="${contId}Chk" value="${c.id}" ${seleccionadosPrevios.includes(c.id) ? "checked" : ""} ${esConfirmado ? "disabled" : ""} />
-              ${c.nombre_complemento}
-            </label>`).join("")}
-        </div>`;
+      lista_wrap.innerHTML = `<p class="text-xs font-semibold mb-2 mt-2" style="color:#6C7B8A">Guisados de este día — marca los que se ofrecerán hoy</p>` +
+        lista.map(g => `
+          <div class="p-3 rounded-lg mb-2" style="background:#F4F1EB">
+            <label class="flex items-center gap-2 text-sm font-semibold mb-1" style="color:#1C2B3A">
+              <input type="checkbox" class="guisadoChk" value="${g.id}" data-nombre="${g.nombre_guisado}"
+                ${(existente && seleccionGuisados[g.id]) || (!existente && lista.length <= 2) ? "checked" : ""}
+                ${esConfirmado ? "disabled" : ""} />
+              ${g.nombre_guisado}
+            </label>
+            <div id="egComp_${g.id}" class="ml-6"></div>
+          </div>`).join("");
+
+      lista.forEach(g => cargarComplementosGuisado(g.id, seleccionGuisados[g.id] ? seleccionGuisados[g.id].complementos : []));
+
+      if (!esConfirmado) {
+        document.querySelectorAll(".guisadoChk").forEach(chk => {
+          chk.addEventListener("change", () => {
+            document.getElementById(`egComp_${chk.value}`).style.display = chk.checked ? "block" : "none";
+          });
+        });
+      }
     }
 
-    if (existente) mostrarSelectoresGuisado(existente.dia_guisado);
+    async function cargarComplementosGuisado(guisadoId, seleccionadosPrevios) {
+      const el = document.getElementById(`egComp_${guisadoId}`);
+      const { data, error } = await sb.rpc("guisados_complementos_obtener", { p_guisado_id: guisadoId });
+      if (error) { el.innerHTML = errBox(error.message); return; }
+      const lista = data || [];
+      if (lista.length === 0) {
+        el.innerHTML = `<p class="text-xs" style="color:#6C7B8A">Sin complementos compatibles registrados.</p>`;
+        return;
+      }
+      el.innerHTML = lista.map(c => `
+        <label class="flex items-center gap-2 text-xs" style="color:#1C2B3A">
+          <input type="checkbox" class="compDelGuisado_${guisadoId}" value="${c.id}" ${seleccionadosPrevios.includes(c.id) ? "checked" : ""} ${esConfirmado ? "disabled" : ""} />
+          ${c.nombre_complemento}
+        </label>`).join("");
+    }
+
+    if (existente) buscarGuisadosDelDia(existente.dia_guisado);
 
     if (!esConfirmado) {
       document.getElementById("egBuscarDia").addEventListener("click", () => {
         const dia = Number(document.getElementById("egDia").value);
-        if (dia >= 1 && dia <= 26) mostrarSelectoresGuisado(dia);
+        if (dia >= 1 && dia <= 26) buscarGuisadosDelDia(dia);
       });
 
       document.getElementById("egGuardarBorrador").addEventListener("click", guardarBorrador);
       document.getElementById("egConfirmar").addEventListener("click", async () => {
-        await guardarBorrador();
+        try { await guardarBorrador(); } catch { return; }
         const msg = document.getElementById("egMsg");
         const { data: md } = await sb.rpc("menu_dia_obtener_por_fecha", { p_fecha: fecha });
         if (!md || !md[0]) return msg.innerHTML = errBox("Guarda el borrador primero.");
@@ -1247,19 +1258,21 @@ function renderEnviarGuisados(main) {
 
     async function guardarBorrador() {
       const dia = Number(document.getElementById("egDia").value);
-      const g1 = document.getElementById("egG1")?.value;
-      const g2 = document.getElementById("egG2")?.value;
       const tortas = [...document.querySelectorAll(".tortaChk:checked")].map(c => c.value);
       const aguas = [...document.querySelectorAll(".aguaChk:checked")].map(c => c.value);
-      const compG1 = [...document.querySelectorAll(".egCompG1WrapChk:checked")].map(c => c.value);
-      const compG2 = [...document.querySelectorAll(".egCompG2WrapChk:checked")].map(c => c.value);
+      const guisadosMarcados = [...document.querySelectorAll(".guisadoChk:checked")];
       const msg = document.getElementById("egMsg");
       msg.innerHTML = "";
       if (!dia || dia < 1 || dia > 26) { msg.innerHTML = errBox("El día debe estar entre 1 y 26."); throw new Error("validación"); }
-      if (!g1 || !g2) { msg.innerHTML = errBox("Selecciona Guisado 1 y Guisado 2."); throw new Error("validación"); }
+      if (guisadosMarcados.length === 0) { msg.innerHTML = errBox("Marca al menos un guisado a ofrecer."); throw new Error("validación"); }
+
+      const guisadosPayload = guisadosMarcados.map(chk => ({
+        guisado_id: chk.value,
+        complementos: [...document.querySelectorAll(`.compDelGuisado_${chk.value}:checked`)].map(c => c.value),
+      }));
+
       const { error } = await sb.rpc("menu_dia_guardar", {
-        p_fecha: fecha, p_dia_guisado: dia, p_guisado_1_id: g1, p_guisado_2_id: g2,
-        p_tortas: tortas, p_aguas: aguas, p_complementos_g1: compG1, p_complementos_g2: compG2,
+        p_fecha: fecha, p_dia_guisado: dia, p_guisados: guisadosPayload, p_tortas: tortas, p_aguas: aguas,
       });
       if (error) { msg.innerHTML = errBox(error.message); throw error; }
       msg.innerHTML = okBox("Borrador guardado.");
