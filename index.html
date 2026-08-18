@@ -1211,34 +1211,256 @@ function renderVentaReceso(main) {
         </div>`;
       return;
     }
+    cont.innerHTML = `<p class="text-xs mt-3" style="color:#6C7B8A">Cargando nota…</p>`;
+    cargarNota(r);
+  }
+
+  async function cargarNota(r) {
+    const cont = document.getElementById("vrResultado");
+
+    const [notaRes, compRes, aguaRes] = await Promise.all([
+      sb.rpc("venta_receso_nota_obtener", { p_pedido_id: r.pedido_id }),
+      r.guisado_id && r.menu_dia_id
+        ? sb.rpc("venta_receso_complementos_disponibles", { p_menu_dia_id: r.menu_dia_id, p_guisado_id: r.guisado_id })
+        : { data: [] },
+      r.menu_dia_id
+        ? sb.rpc("venta_receso_aguas_disponibles", { p_menu_dia_id: r.menu_dia_id })
+        : { data: [] },
+    ]);
+
+    if (notaRes.error) { cont.innerHTML = errBox(notaRes.error.message); return; }
+
+    const nota = notaRes.data || [];
+    const complementosDisp = compRes.data || [];
+    const aguasDisp = aguaRes.data || [];
     const yaSurtido = r.estado_pedido === "Surtido";
-    cont.innerHTML = `
-      <div class="p-4 rounded-xl mt-3 bg-white border" style="border-color:#E1DED5">
-        <p class="text-base font-bold mb-1" style="color:#1C2B3A">${r.nombre_cliente}</p>
-        <p class="text-sm mb-1" style="color:#1C2B3A">
-          ${r.tipo_seleccion === "Guisado" ? r.guisado_nombre : r.tipo_seleccion === "Torta" ? "Torta " + r.torta_nombre : "No consumirá"}
-        </p>
-        ${r.agua_nombre ? `<p class="text-xs" style="color:#6C7B8A">${r.agua_nombre}</p>` : ""}
-        ${r.complementos ? `<p class="text-xs" style="color:#6C7B8A">Complementos: ${r.complementos}</p>` : ""}
-        ${r.extras ? `<p class="text-xs" style="color:#B8862E">Extras: ${r.extras}</p>` : ""}
-        <div id="vrAccionMsg" class="mt-2"></div>
-        ${yaSurtido
-          ? `<div class="mt-2 text-xs p-2 rounded-lg" style="background:#F5E4E1; color:#B5453A">Este pedido YA fue entregado anteriormente.</div>`
-          : `<button id="vrConfirmarBtn" class="w-full mt-2 py-2 rounded-lg text-sm font-bold" style="background:#3F7A5E; color:#fff">Confirmar entrega</button>`}
-        <button id="vrOtro" class="w-full mt-2 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">Escanear otro / buscar otro</button>
-      </div>`;
+    let extrasCaja = []; // { tipo, referencia_id, descripcion, cantidad, precio_unitario }
 
-    document.getElementById("vrOtro").addEventListener("click", () => renderVentaReceso(document.getElementById("main")));
+    const totalPreorden = () => nota.reduce((s, l) => s + Number(l.importe), 0);
+    const totalExtras = () => extrasCaja.reduce((s, l) => s + (l.cantidad * l.precio_unitario), 0);
+    const totalGeneral = () => totalPreorden() + totalExtras();
 
-    if (!yaSurtido) {
-      document.getElementById("vrConfirmarBtn").addEventListener("click", async () => {
-        const { data, error } = await sb.rpc("venta_receso_marcar_surtido", { p_pedido_id: r.pedido_id, p_cajero_id: state.usuario.id });
-        const msg = document.getElementById("vrAccionMsg");
+    function pintar() {
+      cont.innerHTML = `
+        <div class="p-4 rounded-xl mt-3 bg-white border" style="border-color:#E1DED5">
+          <p class="text-base font-bold mb-2" style="color:#1C2B3A">${r.nombre_cliente}</p>
+
+          <table class="w-full text-sm mb-1">
+            <thead>
+              <tr class="text-xs" style="color:#6C7B8A">
+                <th class="text-left font-semibold pb-1">Cant.</th>
+                <th class="text-left font-semibold pb-1">Producto</th>
+                <th class="text-right font-semibold pb-1">Importe</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${nota.map(l => `
+                <tr style="color:#1C2B3A">
+                  <td class="py-0.5">${l.cantidad}</td>
+                  <td class="py-0.5">${l.concepto}</td>
+                  <td class="py-0.5 text-right">$${Number(l.importe).toFixed(2)}</td>
+                </tr>`).join("")}
+            </tbody>
+          </table>
+
+          ${extrasCaja.length > 0 ? `
+            <p class="text-xs font-semibold mt-3 mb-1" style="color:#B8862E">Agregado en caja</p>
+            <table class="w-full text-sm mb-1">
+              <tbody>
+                ${extrasCaja.map((l, i) => `
+                  <tr style="color:#1C2B3A">
+                    <td class="py-0.5">${l.cantidad}</td>
+                    <td class="py-0.5">${l.descripcion}</td>
+                    <td class="py-0.5 text-right">$${(l.cantidad * l.precio_unitario).toFixed(2)}</td>
+                    <td class="py-0.5 text-right"><button data-i="${i}" class="vrQuitarBtn text-xs px-1" style="color:#B5453A">✕</button></td>
+                  </tr>`).join("")}
+              </tbody>
+            </table>` : ""}
+
+          <div class="flex justify-between text-sm font-bold border-t pt-2 mt-2" style="border-color:#E1DED5; color:#1C2B3A">
+            <span>Total</span><span>$${totalGeneral().toFixed(2)}</span>
+          </div>
+
+          ${!yaSurtido ? `
+            <div class="mt-4 p-3 rounded-lg" style="background:#F4F1EB">
+              <p class="text-xs font-semibold mb-2" style="color:#6C7B8A">Agregar a la venta</p>
+
+              <div class="flex gap-2 mb-2">
+                <input id="vrProdInput" placeholder="Buscar producto (bebida, botana…)" class="flex-1 px-2 py-1.5 rounded-lg text-xs outline-none border" style="border-color:#E1DED5" />
+                <button id="vrProdBuscarBtn" class="px-2 py-1.5 rounded-lg text-xs font-semibold" style="background:#fff; border:1px solid #E1DED5; color:#1C2B3A">Buscar</button>
+              </div>
+              <div id="vrProdResultados" class="mb-2"></div>
+
+              ${r.guisado_id ? `
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-xs flex-1" style="color:#1C2B3A">Porción extra de guisado ($${Number(r.costo_porcion_extra || 0).toFixed(2)} c/u)</span>
+                <input id="vrGuisadoQty" type="number" min="1" value="1" class="w-14 px-1 py-1 rounded text-xs border" style="border-color:#E1DED5" />
+                <button id="vrGuisadoAddBtn" class="px-2 py-1 rounded text-xs font-semibold" style="background:#1C2B3A; color:#fff">+</button>
+              </div>` : ""}
+
+              ${complementosDisp.length > 0 ? `
+              <div class="flex items-center gap-2 mb-2">
+                <select id="vrCompSel" class="flex-1 px-2 py-1.5 rounded-lg text-xs outline-none border" style="border-color:#E1DED5">
+                  ${complementosDisp.map(c => `<option value="${c.id}">${c.nombre_complemento} ($${Number(c.costo_complemento).toFixed(2)})</option>`).join("")}
+                </select>
+                <input id="vrCompQty" type="number" min="1" value="1" class="w-14 px-1 py-1 rounded text-xs border" style="border-color:#E1DED5" />
+                <button id="vrCompAddBtn" class="px-2 py-1 rounded text-xs font-semibold" style="background:#1C2B3A; color:#fff">+</button>
+              </div>` : ""}
+
+              ${aguasDisp.length > 0 ? `
+              <div class="flex items-center gap-2 mb-2">
+                <select id="vrAguaSel" class="flex-1 px-2 py-1.5 rounded-lg text-xs outline-none border" style="border-color:#E1DED5">
+                  ${aguasDisp.map(a => `<option value="${a.id}">${a.nombre_producto} extra ($${Number(a.costo_extra).toFixed(2)})</option>`).join("")}
+                </select>
+                <input id="vrAguaQty" type="number" min="1" value="1" class="w-14 px-1 py-1 rounded text-xs border" style="border-color:#E1DED5" />
+                <button id="vrAguaAddBtn" class="px-2 py-1 rounded text-xs font-semibold" style="background:#1C2B3A; color:#fff">+</button>
+              </div>` : ""}
+            </div>
+            <div id="vrAccionMsg" class="mt-2"></div>
+            <button id="vrCerrarVentaBtn" class="w-full mt-3 py-2.5 rounded-lg text-sm font-bold" style="background:#3F7A5E; color:#fff">Cerrar venta</button>
+          ` : `<div class="mt-3 text-xs p-2 rounded-lg" style="background:#F5E4E1; color:#B5453A">Este pedido YA fue entregado anteriormente.</div>`}
+
+          <button id="vrOtro" class="w-full mt-2 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">Escanear otro / buscar otro</button>
+        </div>
+        <div id="vrModal"></div>`;
+
+      document.getElementById("vrOtro").addEventListener("click", () => renderVentaReceso(document.getElementById("main")));
+
+      cont.querySelectorAll(".vrQuitarBtn").forEach(b => b.addEventListener("click", () => {
+        extrasCaja.splice(Number(b.dataset.i), 1);
+        pintar();
+      }));
+
+      if (!yaSurtido) {
+        document.getElementById("vrProdBuscarBtn").addEventListener("click", buscarProducto);
+        document.getElementById("vrProdInput").addEventListener("keydown", e => { if (e.key === "Enter") buscarProducto(); });
+
+        const guisadoBtn = document.getElementById("vrGuisadoAddBtn");
+        if (guisadoBtn) guisadoBtn.addEventListener("click", () => {
+          const qty = Math.max(1, Number(document.getElementById("vrGuisadoQty").value) || 1);
+          extrasCaja.push({ tipo: "Guisado", referencia_id: r.guisado_id, descripcion: "Extra: porción de guisado", cantidad: qty, precio_unitario: Number(r.costo_porcion_extra || 0) });
+          pintar();
+        });
+
+        const compBtn = document.getElementById("vrCompAddBtn");
+        if (compBtn) compBtn.addEventListener("click", () => {
+          const id = document.getElementById("vrCompSel").value;
+          const qty = Math.max(1, Number(document.getElementById("vrCompQty").value) || 1);
+          const comp = complementosDisp.find(c => c.id === id);
+          extrasCaja.push({ tipo: "Complemento", referencia_id: id, descripcion: "Extra: " + comp.nombre_complemento, cantidad: qty, precio_unitario: Number(comp.costo_complemento) });
+          pintar();
+        });
+
+        const aguaBtn = document.getElementById("vrAguaAddBtn");
+        if (aguaBtn) aguaBtn.addEventListener("click", () => {
+          const id = document.getElementById("vrAguaSel").value;
+          const qty = Math.max(1, Number(document.getElementById("vrAguaQty").value) || 1);
+          const agua = aguasDisp.find(a => a.id === id);
+          extrasCaja.push({ tipo: "Agua", referencia_id: id, descripcion: "Extra: " + agua.nombre_producto, cantidad: qty, precio_unitario: Number(agua.costo_extra) });
+          pintar();
+        });
+
+        document.getElementById("vrCerrarVentaBtn").addEventListener("click", abrirModalCobro);
+      }
+    }
+
+    async function buscarProducto() {
+      const criterio = document.getElementById("vrProdInput").value.trim();
+      const cajaResultados = document.getElementById("vrProdResultados");
+      if (!criterio) { cajaResultados.innerHTML = ""; return; }
+      cajaResultados.innerHTML = `<p class="text-xs" style="color:#6C7B8A">Buscando…</p>`;
+      const { data, error } = await sb.rpc("productos_buscar", { p_criterio: criterio });
+      if (error) { cajaResultados.innerHTML = errBox(error.message); return; }
+      const lista = (data || []).filter(p => p.activo);
+      cajaResultados.innerHTML = lista.length === 0
+        ? `<p class="text-xs" style="color:#6C7B8A">Sin resultados.</p>`
+        : lista.map((p, i) => `
+          <div class="flex items-center gap-2 mb-1">
+            <span class="flex-1 text-xs" style="color:#1C2B3A">${p.nombre_producto} ($${Number(p.costo_producto).toFixed(2)}) · Stock: ${p.stock}</span>
+            <input type="number" min="1" value="1" class="vrProdQty w-14 px-1 py-1 rounded text-xs border" data-idx="${i}" style="border-color:#E1DED5" />
+            <button class="vrProdAddBtn px-2 py-1 rounded text-xs font-semibold" data-idx="${i}" style="background:#1C2B3A; color:#fff">+</button>
+          </div>`).join("");
+      cajaResultados.querySelectorAll(".vrProdAddBtn").forEach(b => b.addEventListener("click", () => {
+        const idx = Number(b.dataset.idx);
+        const qtyInput = cajaResultados.querySelector(`.vrProdQty[data-idx="${idx}"]`);
+        const qty = Math.max(1, Number(qtyInput.value) || 1);
+        const p = lista[idx];
+        extrasCaja.push({ tipo: "Producto", referencia_id: p.id, descripcion: p.nombre_producto, cantidad: qty, precio_unitario: Number(p.costo_producto) });
+        pintar();
+      }));
+    }
+
+    function abrirModalCobro() {
+      const total = totalGeneral();
+      const modal = document.getElementById("vrModal");
+      modal.innerHTML = `
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(28,43,58,0.5)">
+          <div class="rounded-xl p-5 bg-white w-80">
+            <p class="text-sm font-semibold mb-1" style="color:#1C2B3A">Cerrar venta</p>
+            <p class="text-sm mb-3" style="color:#6C7B8A">Total a cobrar: <span class="font-bold" style="color:#1C2B3A">$${total.toFixed(2)}</span></p>
+            <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Cantidad recibida</label>
+            <input id="vrMontoRecibido" type="number" step="0.01" class="w-full px-3 py-2 rounded-lg text-sm mb-2 outline-none border" style="border-color:#E1DED5" />
+            <div id="vrCambioTxt" class="text-sm mb-3"></div>
+            <div id="vrModalMsg"></div>
+            <div class="flex gap-2">
+              <button id="vrModalCancelar" class="flex-1 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">Cancelar</button>
+              <button id="vrModalConfirmar" class="flex-1 py-2 rounded-lg text-sm font-bold" style="background:#3F7A5E; color:#fff">Confirmar venta</button>
+            </div>
+          </div>
+        </div>`;
+
+      const montoInput = document.getElementById("vrMontoRecibido");
+      const cambioTxt = document.getElementById("vrCambioTxt");
+      montoInput.addEventListener("input", () => {
+        const recibido = Number(montoInput.value) || 0;
+        if (recibido >= total) {
+          cambioTxt.style.color = "#3F7A5E";
+          cambioTxt.textContent = `Cambio: $${(recibido - total).toFixed(2)}`;
+        } else {
+          cambioTxt.style.color = "#B5453A";
+          cambioTxt.textContent = `Falta: $${(total - recibido).toFixed(2)}`;
+        }
+      });
+
+      document.getElementById("vrModalCancelar").addEventListener("click", () => { modal.innerHTML = ""; });
+
+      document.getElementById("vrModalConfirmar").addEventListener("click", async () => {
+        const recibido = Number(montoInput.value) || 0;
+        const msg = document.getElementById("vrModalMsg");
+        msg.innerHTML = "";
+        if (recibido < total) { msg.innerHTML = errBox("La cantidad recibida debe ser igual o mayor al total."); return; }
+
+        const reg_complementos = extrasCaja.filter(e => e.tipo === "Complemento").map(e => ({ complemento_id: e.referencia_id, cantidad: e.cantidad }));
+        const reg_productos = extrasCaja.filter(e => e.tipo === "Producto").map(e => ({ producto_id: e.referencia_id, cantidad: e.cantidad }));
+        const guisadoExtraQty = extrasCaja.filter(e => e.tipo === "Guisado").reduce((s, e) => s + e.cantidad, 0);
+        const aguaExtra = extrasCaja.find(e => e.tipo === "Agua");
+
+        const { data, error } = await sb.rpc("venta_receso_cerrar_venta", {
+          p_pedido_id: r.pedido_id,
+          p_cajero_id: state.usuario.id,
+          p_monto_recibido: recibido,
+          p_reg_guisado_cantidad: guisadoExtraQty,
+          p_reg_complementos: reg_complementos,
+          p_reg_agua_producto_id: aguaExtra ? aguaExtra.referencia_id : null,
+          p_reg_agua_cantidad: aguaExtra ? aguaExtra.cantidad : 0,
+          p_reg_productos: reg_productos,
+        });
         if (error) { msg.innerHTML = errBox(error.message); return; }
-        msg.innerHTML = okBox(`Entregado. Folio ${data[0].folio_venta} — Total $${data[0].total}`);
-        document.getElementById("vrConfirmarBtn").remove();
+
+        modal.innerHTML = `
+          <div class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(28,43,58,0.5)">
+            <div class="rounded-xl p-5 bg-white w-80 text-center">
+              <p class="text-sm font-bold mb-2" style="color:#3F7A5E">✓ Venta cerrada</p>
+              <p class="text-xs mb-1" style="color:#1C2B3A">Folio ${data[0].folio_venta}</p>
+              <p class="text-xs mb-1" style="color:#1C2B3A">Total: $${Number(data[0].total).toFixed(2)}</p>
+              <p class="text-xs" style="color:#1C2B3A">Cambio: $${Number(data[0].cambio).toFixed(2)}</p>
+            </div>
+          </div>`;
+        setTimeout(() => renderVentaReceso(document.getElementById("main")), 1800);
       });
     }
+
+    pintar();
   }
 }
 
