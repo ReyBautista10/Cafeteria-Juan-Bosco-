@@ -1310,7 +1310,7 @@ function renderVentaReceso(main) {
               ${aguasDisp.length > 0 ? `
               <div class="flex items-center gap-2 mb-2">
                 <select id="vrAguaSel" class="flex-1 px-2 py-1.5 rounded-lg text-xs outline-none border" style="border-color:#E1DED5">
-                  ${aguasDisp.map(a => `<option value="${a.id}">${a.nombre_producto} extra ($${Number(a.costo_extra).toFixed(2)})</option>`).join("")}
+                  ${aguasDisp.map(a => `<option value="${a.id}">${a.nombre_producto} extra ($${Number(a.costo_producto).toFixed(2)})</option>`).join("")}
                 </select>
                 <input id="vrAguaQty" type="number" min="1" value="1" class="w-14 px-1 py-1 rounded text-xs border" style="border-color:#E1DED5" />
                 <button id="vrAguaAddBtn" class="px-2 py-1 rounded text-xs font-semibold" style="background:#1C2B3A; color:#fff">+</button>
@@ -1356,7 +1356,7 @@ function renderVentaReceso(main) {
           const id = document.getElementById("vrAguaSel").value;
           const qty = Math.max(1, Number(document.getElementById("vrAguaQty").value) || 1);
           const agua = aguasDisp.find(a => a.id === id);
-          extrasCaja.push({ tipo: "Agua", referencia_id: id, descripcion: "Extra: " + agua.nombre_producto, cantidad: qty, precio_unitario: Number(agua.costo_extra) });
+          extrasCaja.push({ tipo: "Agua", referencia_id: id, descripcion: "Extra: " + agua.nombre_producto, cantidad: qty, precio_unitario: Number(agua.costo_producto) });
           pintar();
         });
 
