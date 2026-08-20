@@ -1226,16 +1226,169 @@ function renderVentaReceso(main) {
 
   function mostrarResultado(r) {
     const cont = document.getElementById("vrResultado");
-    if (!r.pedido_id) {
-      cont.innerHTML = `
-        <div class="p-4 rounded-xl mt-3" style="background:#F5E4E1; border:1px solid #B5453A">
-          <p class="text-sm font-semibold" style="color:#1C2B3A">${r.nombre_cliente}</p>
-          <p class="text-xs mt-1" style="color:#B5453A">No tiene un pedido capturado para hoy.</p>
-        </div>`;
+    const sinOrden = !r.pedido_id || r.tipo_seleccion === "Ninguno" || !r.tipo_seleccion;
+    if (sinOrden) {
+      mostrarPreguntaAbrirOrden(r);
       return;
     }
     cont.innerHTML = `<p class="text-xs mt-3" style="color:#6C7B8A">Cargando nota…</p>`;
     cargarNota(r);
+  }
+
+  function mostrarPreguntaAbrirOrden(r) {
+    const cont = document.getElementById("vrResultado");
+    if (!r.menu_dia_id) {
+      cont.innerHTML = `
+        <div class="p-4 rounded-xl mt-3" style="background:#F5E4E1; border:1px solid #B5453A">
+          <p class="text-sm font-semibold" style="color:#1C2B3A">${r.nombre_cliente}</p>
+          <p class="text-xs mt-1" style="color:#B5453A">No hay un menú confirmado para hoy, no se puede abrir una orden.</p>
+          <button id="vrSinOrdenOtro" class="w-full mt-3 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">Escanear otro / buscar otro</button>
+        </div>`;
+      document.getElementById("vrSinOrdenOtro").addEventListener("click", () => renderVentaReceso(document.getElementById("main")));
+      return;
+    }
+    cont.innerHTML = `
+      <div class="p-4 rounded-xl mt-3 bg-white border text-center" style="border-color:#E1DED5">
+        <p class="text-sm font-semibold mb-1" style="color:#1C2B3A">${r.nombre_cliente}</p>
+        <p class="text-xs mb-3" style="color:#B5453A">No tiene un pedido capturado para hoy.</p>
+        <p class="text-sm mb-3" style="color:#1C2B3A">¿Desea abrir una orden?</p>
+        <div class="flex gap-2">
+          <button id="vrAbrirNo" class="flex-1 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">No</button>
+          <button id="vrAbrirSi" class="flex-1 py-2 rounded-lg text-sm font-bold" style="background:#1C2B3A; color:#fff">Sí</button>
+        </div>
+      </div>`;
+    document.getElementById("vrAbrirNo").addEventListener("click", () => renderVentaReceso(document.getElementById("main")));
+    document.getElementById("vrAbrirSi").addEventListener("click", () => cargarFormularioOrden(r));
+  }
+
+  async function cargarFormularioOrden(r) {
+    const cont = document.getElementById("vrResultado");
+    cont.innerHTML = `<p class="text-xs mt-3" style="color:#6C7B8A">Cargando menú…</p>`;
+
+    const [guisadosRes, menuRes] = await Promise.all([
+      sb.rpc("menu_dia_guisados_obtener", { p_menu_dia_id: r.menu_dia_id }),
+      sb.rpc("venta_receso_menu_disponibles", { p_menu_dia_id: r.menu_dia_id }),
+    ]);
+    if (guisadosRes.error) { cont.innerHTML = errBox(guisadosRes.error.message); return; }
+    if (menuRes.error) { cont.innerHTML = errBox(menuRes.error.message); return; }
+
+    const guisadosMap = {};
+    (guisadosRes.data || []).forEach(f => {
+      if (!guisadosMap[f.guisado_id]) guisadosMap[f.guisado_id] = { id: f.guisado_id, nombre: f.nombre_guisado, complementos: [] };
+      if (f.complemento_id) guisadosMap[f.guisado_id].complementos.push({ id: f.complemento_id, nombre: f.complemento_nombre });
+    });
+    const guisados = Object.values(guisadosMap);
+
+    const menuInfo = (menuRes.data || [])[0] || { tortas_disponibles: [], aguas_disponibles: [] };
+    const [tortasRes, aguasRes] = await Promise.all([
+      menuInfo.tortas_disponibles && menuInfo.tortas_disponibles.length ? sb.rpc("productos_por_ids", { p_ids: menuInfo.tortas_disponibles }) : { data: [] },
+      menuInfo.aguas_disponibles && menuInfo.aguas_disponibles.length ? sb.rpc("productos_por_ids", { p_ids: menuInfo.aguas_disponibles }) : { data: [] },
+    ]);
+    const tortas = tortasRes.data || [];
+    const aguas = aguasRes.data || [];
+
+    cont.innerHTML = `
+      <div class="p-4 rounded-xl mt-3 bg-white border" style="border-color:#E1DED5">
+        <p class="text-sm font-semibold mb-3" style="color:#1C2B3A">Abrir orden para ${r.nombre_cliente}</p>
+
+        ${guisados.map(g => `
+          <label class="flex items-start gap-2 p-2 rounded-lg mb-1" style="background:#F4F1EB">
+            <input type="radio" name="vrOpcion" value="guisado_${g.id}" />
+            <span class="text-sm font-semibold" style="color:#1C2B3A">${g.nombre}</span>
+          </label>
+          <div id="vrComp_${g.id}" class="ml-6 mb-2"></div>
+        `).join("")}
+
+        ${tortas.length > 0 ? `
+        <label class="flex items-start gap-2 p-2 rounded-lg mb-2" style="background:#F4F1EB">
+          <input type="radio" name="vrOpcion" value="Torta" />
+          <span class="text-sm font-semibold" style="color:#1C2B3A">Torta</span>
+        </label>
+        <div class="ml-6 mb-2">
+          <select id="vrTortaSel" class="w-full px-2 py-1.5 rounded-lg text-sm outline-none border" style="border-color:#E1DED5">
+            ${tortas.map(t => `<option value="${t.id}">${t.nombre_producto}</option>`).join("")}
+          </select>
+        </div>` : ""}
+
+        ${aguas.length > 0 ? `
+        <label class="block text-xs font-semibold mb-1 mt-2" style="color:#6C7B8A">Agua (incluida gratis con el guisado)</label>
+        <select id="vrAguaSelOrden" class="w-full px-2 py-1.5 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5">
+          <option value="">Ninguna</option>
+          ${aguas.map(a => `<option value="${a.id}">${a.nombre_producto}</option>`).join("")}
+        </select>` : ""}
+
+        <div id="vrOrdenMsg"></div>
+        <div class="flex gap-2 mt-3">
+          <button id="vrOrdenCancelar" class="flex-1 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">Cancelar</button>
+          <button id="vrOrdenGuardar" class="flex-1 py-2 rounded-lg text-sm font-bold" style="background:#1C2B3A; color:#fff">Guardar orden</button>
+        </div>
+      </div>`;
+
+    document.getElementById("vrOrdenCancelar").addEventListener("click", () => renderVentaReceso(document.getElementById("main")));
+
+    guisados.forEach(g => {
+      const el = document.getElementById(`vrComp_${g.id}`);
+      if (g.complementos.length === 0) { el.innerHTML = ""; return; }
+      el.innerHTML = g.complementos.map(c => `
+        <label class="flex items-center gap-2 text-xs" style="color:#1C2B3A">
+          <input type="checkbox" class="vrCompChk_${g.id}" value="${c.id}" />
+          ${c.nombre}
+        </label>`).join("");
+      el.querySelectorAll(`.vrCompChk_${g.id}`).forEach(chk => {
+        chk.addEventListener("change", () => {
+          const marcados = el.querySelectorAll(`.vrCompChk_${g.id}:checked`);
+          if (marcados.length > 2) chk.checked = false;
+        });
+      });
+    });
+
+    document.querySelectorAll('input[name="vrOpcion"]').forEach(radio => {
+      radio.addEventListener("change", () => {
+        guisados.forEach(g => {
+          if (`guisado_${g.id}` !== radio.value) {
+            document.querySelectorAll(`.vrCompChk_${g.id}`).forEach(chk => { chk.checked = false; });
+          }
+        });
+      });
+    });
+
+    document.getElementById("vrOrdenGuardar").addEventListener("click", async () => {
+      const opcionEl = document.querySelector('input[name="vrOpcion"]:checked');
+      const msg = document.getElementById("vrOrdenMsg");
+      msg.innerHTML = "";
+      if (!opcionEl) { msg.innerHTML = errBox("Selecciona un guisado o una torta."); return; }
+      const valor = opcionEl.value;
+
+      let tipo_seleccion = "Ninguno";
+      let guisado_id = null;
+      let torta_id = null;
+      let agua_id = document.getElementById("vrAguaSelOrden")?.value || null;
+      let complementos = [];
+
+      if (valor.startsWith("guisado_")) {
+        tipo_seleccion = "Guisado";
+        guisado_id = valor.replace("guisado_", "");
+        complementos = [...document.querySelectorAll(`.vrCompChk_${guisado_id}:checked`)].map(c => c.value);
+      } else if (valor === "Torta") {
+        tipo_seleccion = "Torta";
+        torta_id = document.getElementById("vrTortaSel")?.value || null;
+        agua_id = null;
+      }
+
+      const { error } = await sb.rpc("venta_receso_pedido_capturar", {
+        p_cliente_id: r.cliente_id, p_menu_dia_id: r.menu_dia_id, p_tipo_seleccion: tipo_seleccion,
+        p_guisado_id: guisado_id, p_torta_id: torta_id, p_agua_id: agua_id, p_complementos: complementos,
+      });
+      if (error) { msg.innerHTML = errBox(error.message); return; }
+
+      const refrescado = await sb.rpc("venta_receso_buscar", { p_criterio: r.id_cliente });
+      if (refrescado.error || !refrescado.data || !refrescado.data.length) {
+        msg.innerHTML = errBox("Orden guardada, pero no se pudo recargar la nota. Vuelve a buscar al cliente.");
+        return;
+      }
+      const rActualizado = refrescado.data.find(x => x.id_cliente === r.id_cliente) || refrescado.data[0];
+      mostrarResultado(rActualizado);
+    });
   }
 
   async function cargarNota(r) {
