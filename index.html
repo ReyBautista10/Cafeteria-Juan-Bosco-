@@ -488,6 +488,15 @@ function okBox(texto) {
   return `<div class="text-xs mb-3 p-2 rounded-lg" style="background:#E6F0EA; color:#3F7A5E">${texto}</div>`;
 }
 
+// Antepone "Torta de " al nombre cuando el producto es categoría Torta,
+// para que en la nota no se confunda con el guisado (ej. "Milanesa" -> "Torta de Milanesa").
+function nombreProductoNota(nombre, categoria) {
+  if (categoria === "Torta" && !nombre.toLowerCase().startsWith("torta")) {
+    return "Torta de " + nombre;
+  }
+  return nombre;
+}
+
 function cargarScript(src) {
   return new Promise((resolve, reject) => {
     const s = document.createElement("script");
@@ -784,18 +793,22 @@ function renderComplementoAlta() {
     <div class="max-w-sm p-5 rounded-xl bg-white border" style="border-color:#E1DED5">
       <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Nombre del complemento</label>
       <input id="coNombre" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
+      <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Costo cuando es complemento extra (3er en adelante)</label>
+      <input id="coCostoExtra" type="number" step="0.01" value="0" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
       <div id="coMsg"></div>
       <button id="coGuardar" class="w-full py-2 rounded-lg text-sm font-bold" style="background:#1C2B3A; color:#F4F1EB">Guardar</button>
     </div>`;
   document.getElementById("coGuardar").addEventListener("click", async () => {
     const nombre = document.getElementById("coNombre").value;
+    const costoExtra = Number(document.getElementById("coCostoExtra").value) || 0;
     const msg = document.getElementById("coMsg");
     msg.innerHTML = "";
     if (!nombre.trim()) return msg.innerHTML = errBox("Escribe el nombre del complemento.");
-    const { data, error } = await sb.rpc("complementos_alta", { p_nombre_complemento: nombre });
+    const { data, error } = await sb.rpc("complementos_alta", { p_nombre_complemento: nombre, p_costo_complemento: costoExtra });
     if (error) return msg.innerHTML = errBox(error.message);
     msg.innerHTML = okBox(`Complemento creado: ${data[0].id_complemento}`);
     document.getElementById("coNombre").value = "";
+    document.getElementById("coCostoExtra").value = "0";
   });
 }
 
@@ -878,13 +891,16 @@ function renderComplementoModificar() {
         <input value="${r.id_complemento}" disabled class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5; color:#6C7B8A; background:#F4F1EB" />
         <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Nombre</label>
         <input id="coModNombre" value="${r.nombre_complemento}" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Costo cuando es complemento extra (3er en adelante)</label>
+        <input id="coModCostoExtra" type="number" step="0.01" value="${r.costo_complemento ?? 0}" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
         <div id="coModMsg"></div>
         <button id="coModGuardar" class="w-full py-2 rounded-lg text-sm font-bold" style="background:#1C2B3A; color:#F4F1EB">Guardar cambios</button>
       </div>`;
     document.getElementById("coModGuardar").addEventListener("click", async () => {
       const nombre = document.getElementById("coModNombre").value;
+      const costoExtra = Number(document.getElementById("coModCostoExtra").value) || 0;
       const msg = document.getElementById("coModMsg");
-      const { error } = await sb.rpc("complementos_modificar", { p_id: r.id, p_nombre_complemento: nombre });
+      const { error } = await sb.rpc("complementos_modificar", { p_id: r.id, p_nombre_complemento: nombre, p_costo_complemento: costoExtra });
       if (error) return msg.innerHTML = errBox(error.message);
       msg.innerHTML = okBox("Cambios guardados correctamente.");
       setTimeout(() => { state.usuarioSubvista = "menu"; renderSeccion(); }, 1100);
@@ -926,6 +942,8 @@ function renderGuisadoAlta() {
         </select>
         <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Costo</label>
         <input id="guCosto" type="number" step="0.01" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Costo de la porción extra (en caja)</label>
+        <input id="guCostoExtra" type="number" step="0.01" value="0" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
         <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Complementos compatibles</label>
         <div class="mb-3">${checklistComplementosHtml(todos, [])}</div>
         <div id="guMsg"></div>
@@ -938,6 +956,7 @@ function renderGuisadoAlta() {
       const dia = Number(document.getElementById("guDia").value);
       const categoria = document.getElementById("guCategoria").value;
       const costo = Number(document.getElementById("guCosto").value);
+      const costoExtra = Number(document.getElementById("guCostoExtra").value) || 0;
       const complementos = [...document.querySelectorAll(".compChk:checked")].map(c => c.value);
       const msg = document.getElementById("guMsg");
       msg.innerHTML = "";
@@ -947,7 +966,7 @@ function renderGuisadoAlta() {
 
       const { data, error } = await sb.rpc("guisados_alta", {
         p_nombre_guisado: nombre, p_dia_guisado: dia, p_categoria_guisado: categoria,
-        p_costo_guisado: costo, p_complementos: complementos,
+        p_costo_guisado: costo, p_complementos: complementos, p_costo_porcion_extra: costoExtra,
       });
       if (error) return msg.innerHTML = errBox(error.message);
       const guisado = data[0];
@@ -1071,6 +1090,8 @@ function renderGuisadoModificar() {
         </select>
         <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Costo</label>
         <input id="guModCosto" type="number" step="0.01" value="${r.costo_guisado}" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Costo de la porción extra (en caja)</label>
+        <input id="guModCostoExtra" type="number" step="0.01" value="${r.costo_porcion_extra ?? 0}" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
         <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Complementos compatibles</label>
         <div class="mb-3">${checklistComplementosHtml(todos, asignados)}</div>
         <div id="guModMsg"></div>
@@ -1085,13 +1106,14 @@ function renderGuisadoModificar() {
       const dia = Number(document.getElementById("guModDia").value);
       const categoria = document.getElementById("guModCategoria").value;
       const costo = Number(document.getElementById("guModCosto").value);
+      const costoExtra = Number(document.getElementById("guModCostoExtra").value) || 0;
       const complementos = [...document.querySelectorAll(".compChk:checked")].map(c => c.value);
       const msg = document.getElementById("guModMsg");
       msg.innerHTML = "";
       if (!dia || dia < 1 || dia > 26) return msg.innerHTML = errBox("El día debe estar entre 1 y 26.");
       const { error } = await sb.rpc("guisados_modificar", {
         p_id: r.id, p_nombre_guisado: nombre, p_dia_guisado: dia, p_categoria_guisado: categoria,
-        p_costo_guisado: costo, p_complementos: complementos,
+        p_costo_guisado: costo, p_complementos: complementos, p_costo_porcion_extra: costoExtra,
       });
       if (error) return msg.innerHTML = errBox(error.message);
       msg.innerHTML = okBox("Cambios guardados correctamente.");
@@ -1402,7 +1424,7 @@ function renderVentaReceso(main) {
         const qtyInput = cajaResultados.querySelector(`.vrProdQty[data-idx="${idx}"]`);
         const qty = Math.max(1, Number(qtyInput.value) || 1);
         const p = lista[idx];
-        agregarACaja({ tipo: "Producto", referencia_id: p.id, descripcion: p.nombre_producto, cantidad: qty, precio_unitario: Number(p.costo_producto) });
+        agregarACaja({ tipo: "Producto", referencia_id: p.id, descripcion: nombreProductoNota(p.nombre_producto, p.categoria_producto), cantidad: qty, precio_unitario: Number(p.costo_producto) });
         pintar();
       }));
     }
@@ -1536,7 +1558,7 @@ function renderVentaGeneral(main) {
       const qtyInput = cont.querySelector(`.vgQty[data-idx="${idx}"]`);
       const qty = Math.max(1, Number(qtyInput.value) || 1);
       const p = lista[idx];
-      agregarAlCarrito({ producto_id: p.id, nombre_producto: p.nombre_producto, cantidad: qty, precio_unitario: Number(p.costo_producto) });
+      agregarAlCarrito({ producto_id: p.id, nombre_producto: nombreProductoNota(p.nombre_producto, p.categoria_producto), cantidad: qty, precio_unitario: Number(p.costo_producto) });
       pintarNota();
     }));
   }
