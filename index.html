@@ -193,6 +193,7 @@ function renderSeccion() {
   if (state.seccion === "revisar_pedidos") return renderRevisarPedidos(main);
   if (state.seccion === "venta_receso") return renderVentaReceso(main);
   if (state.seccion === "venta_general") return renderVentaGeneral(main);
+  if (state.seccion === "reportes") return renderReportes(main);
   if (state.seccion === "solicitar_ingredientes") return renderSolicitarIngredientes(main);
   const label = MENU.find(m => m.id === state.seccion)?.label;
   main.innerHTML = `<div class="h-full flex flex-col items-center justify-center text-center" style="color:#6C7B8A">
@@ -1839,6 +1840,154 @@ function renderVentaGeneral(main) {
       setTimeout(() => renderVentaGeneral(document.getElementById("main")), 1800);
     });
   }
+}
+
+// ============================================================
+// Módulo Reportes
+// ============================================================
+
+// Devuelve {desde, hasta} como strings YYYY-MM-DD según el preset elegido.
+function rangoPorPreset(preset) {
+  const hoy = new Date();
+  const fmt = (d) => d.toISOString().slice(0, 10);
+  if (preset === "hoy") {
+    return { desde: fmt(hoy), hasta: fmt(hoy) };
+  }
+  if (preset === "semana") {
+    const dia = hoy.getDay(); // 0=domingo
+    const diff = dia === 0 ? 6 : dia - 1; // lunes como inicio de semana
+    const inicio = new Date(hoy);
+    inicio.setDate(hoy.getDate() - diff);
+    return { desde: fmt(inicio), hasta: fmt(hoy) };
+  }
+  if (preset === "mes") {
+    const inicio = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+    return { desde: fmt(inicio), hasta: fmt(hoy) };
+  }
+  return { desde: fmt(hoy), hasta: fmt(hoy) };
+}
+
+function renderReportes(main) {
+  let rango = rangoPorPreset("hoy");
+  let presetActivo = "hoy";
+
+  main.innerHTML = `
+    <h2 class="text-lg font-bold mb-4" style="color:#1C2B3A">Reportes</h2>
+    <div class="max-w-2xl">
+      <div class="p-4 rounded-xl bg-white border mb-4" style="border-color:#E1DED5">
+        <p class="text-sm font-semibold mb-2" style="color:#1C2B3A">Periodo</p>
+        <div class="flex gap-2 flex-wrap mb-3">
+          <button class="repPreset px-3 py-1.5 rounded-lg text-xs font-semibold" data-preset="hoy" style="background:#1C2B3A; color:#fff">Hoy</button>
+          <button class="repPreset px-3 py-1.5 rounded-lg text-xs font-semibold" data-preset="semana" style="background:#F4F1EB; color:#1C2B3A">Esta semana</button>
+          <button class="repPreset px-3 py-1.5 rounded-lg text-xs font-semibold" data-preset="mes" style="background:#F4F1EB; color:#1C2B3A">Este mes</button>
+          <button class="repPreset px-3 py-1.5 rounded-lg text-xs font-semibold" data-preset="personalizado" style="background:#F4F1EB; color:#1C2B3A">Rango personalizado</button>
+        </div>
+        <div id="repRangoPersonalizado" class="flex gap-2 items-end mb-2" style="display:none">
+          <div>
+            <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Desde</label>
+            <input id="repDesde" type="date" class="px-2 py-1.5 rounded-lg text-sm outline-none border" style="border-color:#E1DED5" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Hasta</label>
+            <input id="repHasta" type="date" class="px-2 py-1.5 rounded-lg text-sm outline-none border" style="border-color:#E1DED5" />
+          </div>
+          <button id="repAplicarRango" class="px-3 py-1.5 rounded-lg text-xs font-semibold" style="background:#1C2B3A; color:#fff">Aplicar</button>
+        </div>
+        <p id="repRangoTexto" class="text-xs" style="color:#6C7B8A"></p>
+      </div>
+      <div id="repContenido"><p class="text-xs" style="color:#6C7B8A">Cargando…</p></div>
+    </div>`;
+
+  document.querySelectorAll(".repPreset").forEach(b => b.addEventListener("click", () => {
+    presetActivo = b.dataset.preset;
+    document.querySelectorAll(".repPreset").forEach(x => {
+      x.style.background = x === b ? "#1C2B3A" : "#F4F1EB";
+      x.style.color = x === b ? "#fff" : "#1C2B3A";
+    });
+    document.getElementById("repRangoPersonalizado").style.display = presetActivo === "personalizado" ? "flex" : "none";
+    if (presetActivo !== "personalizado") {
+      rango = rangoPorPreset(presetActivo);
+      cargarReportes();
+    }
+  }));
+
+  document.getElementById("repAplicarRango").addEventListener("click", () => {
+    const d = document.getElementById("repDesde").value;
+    const h = document.getElementById("repHasta").value;
+    if (!d || !h) return;
+    rango = { desde: d, hasta: h };
+    cargarReportes();
+  });
+
+  async function cargarReportes() {
+    document.getElementById("repRangoTexto").textContent = `Del ${rango.desde} al ${rango.hasta}`;
+    const cont = document.getElementById("repContenido");
+    cont.innerHTML = `<p class="text-xs" style="color:#6C7B8A">Cargando…</p>`;
+
+    const [resumenRes, guisadosRes, aguasRes, productosRes, complementosRes] = await Promise.all([
+      sb.rpc("reportes_resumen_ventas", { p_desde: rango.desde, p_hasta: rango.hasta }),
+      sb.rpc("reportes_top_guisados", { p_desde: rango.desde, p_hasta: rango.hasta, p_limite: 10 }),
+      sb.rpc("reportes_top_aguas", { p_desde: rango.desde, p_hasta: rango.hasta, p_limite: 10 }),
+      sb.rpc("reportes_top_productos_venta_general", { p_desde: rango.desde, p_hasta: rango.hasta, p_limite: 10 }),
+      sb.rpc("reportes_top_complementos", { p_desde: rango.desde, p_hasta: rango.hasta, p_limite: 10 }),
+    ]);
+
+    if (resumenRes.error) { cont.innerHTML = errBox(resumenRes.error.message); return; }
+    const resumen = (resumenRes.data || [])[0] || {};
+
+    const tablaRanking = (titulo, filas, colNombre) => `
+      <div class="p-4 rounded-xl bg-white border mb-4" style="border-color:#E1DED5">
+        <p class="text-sm font-semibold mb-2" style="color:#1C2B3A">${titulo}</p>
+        ${filas.length === 0 ? `<p class="text-xs" style="color:#6C7B8A">Sin datos en este periodo.</p>` : `
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-xs" style="color:#6C7B8A">
+              <th class="text-left font-semibold pb-1">${colNombre}</th>
+              <th class="text-right font-semibold pb-1">Cant.</th>
+              <th class="text-right font-semibold pb-1">Importe</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filas.map(f => `
+              <tr style="color:#1C2B3A">
+                <td class="py-0.5">${f.nombre}</td>
+                <td class="py-0.5 text-right">${f.cantidad_vendida}</td>
+                <td class="py-0.5 text-right">$${Number(f.importe_total).toFixed(2)}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>`}
+      </div>`;
+
+    cont.innerHTML = `
+      <div class="grid grid-cols-2 gap-3 mb-4">
+        <div class="p-4 rounded-xl bg-white border" style="border-color:#E1DED5">
+          <p class="text-xs" style="color:#6C7B8A">Total del periodo</p>
+          <p class="text-xl font-bold" style="color:#1C2B3A">$${Number(resumen.total_general || 0).toFixed(2)}</p>
+        </div>
+        <div class="p-4 rounded-xl bg-white border" style="border-color:#E1DED5">
+          <p class="text-xs" style="color:#6C7B8A">Ticket promedio</p>
+          <p class="text-xl font-bold" style="color:#1C2B3A">$${Number(resumen.ticket_promedio || 0).toFixed(2)}</p>
+        </div>
+        <div class="p-4 rounded-xl bg-white border" style="border-color:#E1DED5">
+          <p class="text-xs" style="color:#6C7B8A">Venta Receso</p>
+          <p class="text-base font-bold" style="color:#1C2B3A">$${Number(resumen.total_venta_receso || 0).toFixed(2)}</p>
+          <p class="text-xs" style="color:#6C7B8A">${resumen.num_ventas_receso || 0} ventas</p>
+        </div>
+        <div class="p-4 rounded-xl bg-white border" style="border-color:#E1DED5">
+          <p class="text-xs" style="color:#6C7B8A">Venta General</p>
+          <p class="text-base font-bold" style="color:#1C2B3A">$${Number(resumen.total_venta_general || 0).toFixed(2)}</p>
+          <p class="text-xs" style="color:#6C7B8A">${resumen.num_ventas_general || 0} ventas</p>
+        </div>
+      </div>
+
+      ${tablaRanking("Guisados más pedidos", (guisadosRes.data || []).map(g => ({ nombre: g.nombre_guisado, cantidad_vendida: g.cantidad_vendida, importe_total: g.importe_total })), "Guisado")}
+      ${tablaRanking("Aguas más pedidas", (aguasRes.data || []).map(a => ({ nombre: a.nombre_producto, cantidad_vendida: a.cantidad_vendida, importe_total: a.importe_total })), "Agua")}
+      ${tablaRanking("Productos más vendidos (Venta General)", (productosRes.data || []).map(p => ({ nombre: p.nombre_producto, cantidad_vendida: p.cantidad_vendida, importe_total: p.importe_total })), "Producto")}
+      ${tablaRanking("Complementos más elegidos", (complementosRes.data || []).map(c => ({ nombre: c.nombre_complemento, cantidad_vendida: c.cantidad_vendida, importe_total: c.importe_total })), "Complemento")}
+    `;
+  }
+
+  cargarReportes();
 }
 
 // ============================================================
