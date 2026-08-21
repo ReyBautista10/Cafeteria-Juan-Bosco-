@@ -1413,7 +1413,7 @@ function renderVentaReceso(main) {
     let extrasCaja = []; // { tipo, referencia_id, descripcion, cantidad, precio_unitario }
 
     function agregarACaja(item) {
-      const existente = extrasCaja.find(e => e.tipo === item.tipo && e.referencia_id === item.referencia_id);
+      const existente = extrasCaja.find(e => e.tipo === item.tipo && e.referencia_id === item.referencia_id && e.precio_unitario === item.precio_unitario);
       if (existente) {
         existente.cantidad += item.cantidad;
       } else {
@@ -1539,7 +1539,19 @@ function renderVentaReceso(main) {
           const id = document.getElementById("vrCompSel").value;
           const qty = Math.max(1, Number(document.getElementById("vrCompQty").value) || 1);
           const comp = complementosDisp.find(c => c.id === id);
-          agregarACaja({ tipo: "Complemento", referencia_id: id, descripcion: "Extra: " + comp.nombre_complemento, cantidad: qty, precio_unitario: Number(comp.costo_complemento) });
+
+          const baseCount = r.complementos ? r.complementos.split(",").length : 0;
+          const yaGratisEnCaja = extrasCaja.filter(e => e.tipo === "Complemento" && e.precio_unitario === 0).reduce((s, e) => s + e.cantidad, 0);
+          const disponiblesGratis = Math.max(0, 2 - baseCount - yaGratisEnCaja);
+          const qtyGratis = Math.min(qty, disponiblesGratis);
+          const qtyPagada = qty - qtyGratis;
+
+          if (qtyGratis > 0) {
+            agregarACaja({ tipo: "Complemento", referencia_id: id, descripcion: comp.nombre_complemento, cantidad: qtyGratis, precio_unitario: 0 });
+          }
+          if (qtyPagada > 0) {
+            agregarACaja({ tipo: "Complemento", referencia_id: id, descripcion: "Extra: " + comp.nombre_complemento, cantidad: qtyPagada, precio_unitario: Number(comp.costo_complemento) });
+          }
           pintar();
         });
 
