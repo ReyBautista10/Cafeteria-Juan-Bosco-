@@ -498,6 +498,63 @@ function nombreProductoNota(nombre, categoria) {
   return nombre;
 }
 
+// Abre un modal de cámara para leer un código de barras (EAN/UPC/Code128, etc.)
+// usando la API nativa BarcodeDetector. Llama a onResultado(codigo) al detectar uno.
+async function abrirEscanerBarras(onResultado) {
+  if (!("BarcodeDetector" in window)) {
+    alert("Tu navegador no soporta lectura de código de barras con la cámara. Usa la captura manual.");
+    return;
+  }
+
+  const modal = document.createElement("div");
+  modal.className = "fixed inset-0 z-50 flex flex-col items-center justify-center p-4";
+  modal.style.background = "rgba(28,43,58,0.85)";
+  modal.innerHTML = `
+    <video id="ebVideo" class="w-full max-w-sm rounded-lg bg-black" style="max-height:320px; object-fit:cover" playsinline muted></video>
+    <p class="text-xs mt-3" style="color:#F4F1EB">Apunta la cámara al código de barras…</p>
+    <button id="ebCancelar" class="mt-4 px-4 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">Cancelar</button>
+  `;
+  document.body.appendChild(modal);
+
+  let stream = null;
+  let activo = true;
+
+  function cerrar(resultado) {
+    activo = false;
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    modal.remove();
+    if (resultado) onResultado(resultado);
+  }
+
+  document.getElementById("ebCancelar").addEventListener("click", () => cerrar(null));
+
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+    const video = document.getElementById("ebVideo");
+    video.srcObject = stream;
+    await video.play();
+
+    const detector = new BarcodeDetector({
+      formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39", "qr_code"],
+    });
+
+    async function ciclo() {
+      if (!activo) return;
+      try {
+        const codigos = await detector.detect(video);
+        if (codigos.length > 0) {
+          cerrar(codigos[0].rawValue);
+          return;
+        }
+      } catch (e) { /* frame no válido, seguimos intentando */ }
+      requestAnimationFrame(ciclo);
+    }
+    requestAnimationFrame(ciclo);
+  } catch (err) {
+    modal.querySelector("p").textContent = "No se pudo activar la cámara: " + err.message;
+  }
+}
+
 function cargarScript(src) {
   return new Promise((resolve, reject) => {
     const s = document.createElement("script");
@@ -1318,6 +1375,9 @@ function renderVentaReceso(main) {
           ${aguas.map(a => `<option value="${a.id}">${a.nombre_producto}</option>`).join("")}
         </select>` : ""}
 
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Observaciones (opcional)</label>
+        <textarea id="vrObservacionesOrden" rows="2" placeholder="Ej. torta sin tomate…" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5"></textarea>
+
         <div id="vrOrdenMsg"></div>
         <div class="flex gap-2 mt-3">
           <button id="vrOrdenCancelar" class="flex-1 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">Cancelar</button>
@@ -1379,6 +1439,7 @@ function renderVentaReceso(main) {
       const { error } = await sb.rpc("venta_receso_pedido_capturar", {
         p_cliente_id: r.cliente_id, p_menu_dia_id: r.menu_dia_id, p_tipo_seleccion: tipo_seleccion,
         p_guisado_id: guisado_id, p_torta_id: torta_id, p_agua_id: agua_id, p_complementos: complementos,
+        p_observaciones: document.getElementById("vrObservacionesOrden").value.trim() || null,
       });
       if (error) { msg.innerHTML = errBox(error.message); return; }
 
@@ -1431,6 +1492,8 @@ function renderVentaReceso(main) {
         <div class="p-4 rounded-xl mt-3 bg-white border" style="border-color:#E1DED5">
           <p class="text-base font-bold mb-2" style="color:#1C2B3A">${r.nombre_cliente}</p>
 
+          ${r.observaciones ? `<div class="text-xs mb-3 p-2 rounded-lg" style="background:#FDF3E3; color:#8A6100"><strong>Observaciones:</strong> ${r.observaciones}</div>` : ""}
+
           <table class="w-full text-sm mb-1">
             <thead>
               <tr class="text-xs" style="color:#6C7B8A">
@@ -1474,6 +1537,7 @@ function renderVentaReceso(main) {
               <div class="flex gap-2 mb-2">
                 <input id="vrProdInput" placeholder="Buscar producto (bebida, botana…)" class="flex-1 px-2 py-1.5 rounded-lg text-xs outline-none border" style="border-color:#E1DED5" />
                 <button id="vrProdBuscarBtn" class="px-2 py-1.5 rounded-lg text-xs font-semibold" style="background:#fff; border:1px solid #E1DED5; color:#1C2B3A">Buscar</button>
+                <button id="vrProdEscanearBtn" type="button" class="px-2 py-1.5 rounded-lg text-xs font-semibold" style="background:#fff; border:1px solid #E1DED5; color:#1C2B3A">📷</button>
               </div>
               <div id="vrProdResultados" class="mb-2"></div>
 
@@ -1527,6 +1591,12 @@ function renderVentaReceso(main) {
       if (!yaSurtido) {
         document.getElementById("vrProdBuscarBtn").addEventListener("click", buscarProducto);
         document.getElementById("vrProdInput").addEventListener("keydown", e => { if (e.key === "Enter") buscarProducto(); });
+        document.getElementById("vrProdEscanearBtn").addEventListener("click", () => {
+          abrirEscanerBarras((codigo) => {
+            document.getElementById("vrProdInput").value = codigo;
+            buscarProducto();
+          });
+        });
 
         const guisadoBtn = document.getElementById("vrGuisadoAddBtn");
         if (guisadoBtn) guisadoBtn.addEventListener("click", () => {
@@ -1684,6 +1754,7 @@ function renderVentaGeneral(main) {
         <div class="flex gap-2">
           <input id="vgBuscarInput" placeholder="Nombre o categoría del producto…" class="flex-1 px-3 py-2 rounded-lg text-sm outline-none border" style="border-color:#E1DED5" />
           <button id="vgBuscarBtn" class="px-3 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">Buscar</button>
+          <button id="vgEscanearBtn" type="button" class="px-3 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">📷</button>
         </div>
         <div id="vgResultados" class="mt-2"></div>
       </div>
@@ -1693,6 +1764,12 @@ function renderVentaGeneral(main) {
 
   document.getElementById("vgBuscarBtn").addEventListener("click", buscarProducto);
   document.getElementById("vgBuscarInput").addEventListener("keydown", e => { if (e.key === "Enter") buscarProducto(); });
+  document.getElementById("vgEscanearBtn").addEventListener("click", () => {
+    abrirEscanerBarras((codigo) => {
+      document.getElementById("vgBuscarInput").value = codigo;
+      buscarProducto();
+    });
+  });
 
   function agregarAlCarrito(item) {
     const existente = carrito.find(l => l.producto_id === item.producto_id);
@@ -2389,12 +2466,21 @@ function renderProductoAlta() {
       <input id="prCosto" type="number" step="0.01" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
       <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Existencias iniciales</label>
       <input id="prStock" type="number" value="0" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
+      <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Código de barras (opcional)</label>
+      <div class="flex gap-2 mb-3">
+        <input id="prCodigoBarras" class="flex-1 px-3 py-2 rounded-lg text-sm outline-none border" style="border-color:#E1DED5" />
+        <button id="prEscanearBtn" type="button" class="px-3 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">📷</button>
+      </div>
       <div id="prMsg"></div>
       <div class="flex gap-2 mt-2">
         <button id="prCancelar" class="flex-1 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">Cancelar</button>
         <button id="prGuardar" class="flex-1 py-2 rounded-lg text-sm font-bold" style="background:#1C2B3A; color:#F4F1EB">Guardar</button>
       </div>
     </div>`;
+
+  document.getElementById("prEscanearBtn").addEventListener("click", () => {
+    abrirEscanerBarras((codigo) => { document.getElementById("prCodigoBarras").value = codigo; });
+  });
 
   document.getElementById("prCancelar").addEventListener("click", () => { state.usuarioSubvista = "menu"; renderSeccion(); });
 
@@ -2403,11 +2489,12 @@ function renderProductoAlta() {
     const categoria = document.getElementById("prCategoria").value;
     const costo = Number(document.getElementById("prCosto").value);
     const stock = Number(document.getElementById("prStock").value);
+    const codigoBarras = document.getElementById("prCodigoBarras").value.trim() || null;
     const msg = document.getElementById("prMsg");
     msg.innerHTML = "";
     if (!nombre.trim()) return msg.innerHTML = errBox("Escribe el nombre del producto.");
     if (isNaN(costo) || costo < 0) return msg.innerHTML = errBox("Escribe un costo válido.");
-    const { data, error } = await sb.rpc("productos_alta", { p_nombre_producto: nombre, p_categoria_producto: categoria, p_costo_producto: costo, p_stock: stock });
+    const { data, error } = await sb.rpc("productos_alta", { p_nombre_producto: nombre, p_categoria_producto: categoria, p_costo_producto: costo, p_stock: stock, p_codigo_barras: codigoBarras });
     if (error) return msg.innerHTML = errBox(error.message);
     msg.innerHTML = okBox(`Producto creado: ${data[0].id_producto}`);
     setTimeout(() => { state.usuarioSubvista = "menu"; renderSeccion(); }, 1100);
@@ -2466,17 +2553,26 @@ function renderProductoModificar() {
         </select>
         <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Costo</label>
         <input id="prModCosto" type="number" step="0.01" value="${r.costo_producto}" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
+        <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Código de barras (opcional)</label>
+        <div class="flex gap-2 mb-3">
+          <input id="prModCodigoBarras" value="${r.codigo_barras || ""}" class="flex-1 px-3 py-2 rounded-lg text-sm outline-none border" style="border-color:#E1DED5" />
+          <button id="prModEscanearBtn" type="button" class="px-3 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">📷</button>
+        </div>
         <div id="prModMsg"></div>
         <button id="prModGuardar" class="w-full py-2 rounded-lg text-sm font-bold" style="background:#1C2B3A; color:#F4F1EB">Guardar cambios</button>
       </div>`;
+    document.getElementById("prModEscanearBtn").addEventListener("click", () => {
+      abrirEscanerBarras((codigo) => { document.getElementById("prModCodigoBarras").value = codigo; });
+    });
     document.getElementById("prModGuardar").addEventListener("click", async () => {
       const nombre = document.getElementById("prModNombre").value;
       const categoria = document.getElementById("prModCategoria").value;
       const costo = Number(document.getElementById("prModCosto").value);
+      const codigoBarras = document.getElementById("prModCodigoBarras").value.trim() || null;
       const msg = document.getElementById("prModMsg");
       msg.innerHTML = "";
       if (isNaN(costo) || costo < 0) return msg.innerHTML = errBox("Escribe un costo válido.");
-      const { error } = await sb.rpc("productos_modificar", { p_id: r.id, p_nombre_producto: nombre, p_categoria_producto: categoria, p_costo_producto: costo });
+      const { error } = await sb.rpc("productos_modificar", { p_id: r.id, p_nombre_producto: nombre, p_categoria_producto: categoria, p_costo_producto: costo, p_codigo_barras: codigoBarras });
       if (error) return msg.innerHTML = errBox(error.message);
       msg.innerHTML = okBox("Cambios guardados correctamente.");
       setTimeout(() => { state.usuarioSubvista = "menu"; renderSeccion(); }, 1100);

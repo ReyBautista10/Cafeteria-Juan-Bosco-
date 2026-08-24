@@ -126,6 +126,9 @@ async function init() {
         <div id="extrasWrap" style="display:none"></div>
       </div>
 
+      <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Observaciones (opcional)</label>
+      <textarea id="observacionesInput" rows="2" placeholder="Ej. torta sin tomate, sin cebolla, etc." class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5">${m.observaciones_actual || ""}</textarea>
+
       <button id="pedGuardar" class="w-full py-2.5 rounded-lg text-sm font-bold" style="background:#1C2B3A; color:#F4F1EB">Guardar selección</button>
     </div>
     <div id="pedConfirmacion"></div>`;
@@ -219,10 +222,12 @@ async function init() {
 
   function mostrarResumen() {
     const lineas = calcularLineas();
+    const obs = document.getElementById("observacionesInput")?.value.trim();
     document.getElementById("pedConfirmacion").innerHTML = `
       <div class="p-4 rounded-xl mt-4" style="background:#E6F0EA; border:1px solid #3F7A5E">
         <p class="text-sm font-semibold mb-2" style="color:#1C2B3A">${m.nombre_cliente} tu orden quedó de la siguiente manera:</p>
         <div class="text-sm" style="color:#1C2B3A">${lineas.map(l => `<div>${l}</div>`).join("")}</div>
+        ${obs ? `<div class="text-xs mt-2" style="color:#6C7B8A"><strong>Observaciones:</strong> ${obs}</div>` : ""}
       </div>`;
   }
 
@@ -282,11 +287,13 @@ async function init() {
     const extra_guisado = document.getElementById("extraGuisadoChk")?.checked || false;
     const extra_complementos = [...document.querySelectorAll(".extraCompChk:checked")].map(c => c.value);
     const extra_tortas = [...document.querySelectorAll(".extraTortaChk:checked")].map(c => c.value);
+    const observaciones = document.getElementById("observacionesInput").value.trim() || null;
 
     const { error } = await sb.rpc("pedido_guardar", {
       p_token: token, p_menu_dia_id: m.menu_dia_id, p_tipo_seleccion: tipo_seleccion,
       p_guisado_id: guisado_id, p_torta_id: torta_id, p_agua_id: agua_id, p_complementos: complementos,
       p_extra_guisado: extra_guisado, p_extra_complementos: extra_complementos, p_extra_tortas: extra_tortas,
+      p_observaciones: observaciones,
     });
     if (error) { msg.innerHTML = errBox(error.message); return; }
 
