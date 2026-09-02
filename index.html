@@ -2140,6 +2140,7 @@ function renderRevisarPedidos(main) {
           </div>
           ${f.complementos ? `<div class="text-xs" style="color:#6C7B8A">Complementos: ${f.complementos}</div>` : ""}
           ${f.extras ? `<div class="text-xs" style="color:#B8862E">Extras: ${f.extras}</div>` : ""}
+          ${f.observaciones ? `<div class="text-xs mt-1 p-1.5 rounded" style="background:#FDF3E3; color:#8A6100"><strong>Obs:</strong> ${f.observaciones}</div>` : ""}
         </div>`).join("") || `<p class="text-xs" style="color:#6C7B8A">Sin resultados.</p>`;
     }
     pintarLista("");
