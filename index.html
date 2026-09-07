@@ -2233,7 +2233,7 @@ function renderEnviarGuisados(main) {
     renderFormularioMenu(fecha, existente);
   }
 
-  async function renderFormularioMenu(fecha, existente) {
+  async function renderFormularioMenu(fecha, existente, autorizado = false) {
     const cont = document.getElementById("egForm");
     cont.innerHTML = `<p class="text-xs" style="color:#6C7B8A">Cargando…</p>`;
 
@@ -2243,6 +2243,7 @@ function renderEnviarGuisados(main) {
     ]);
 
     const esConfirmado = existente && existente.estado === "Confirmado";
+    const bloqueado = esConfirmado && !autorizado;
 
     // Mapa en memoria: guisadoId -> array de complementoId marcados como disponibles hoy
     let seleccionGuisados = {};
@@ -2258,7 +2259,16 @@ function renderEnviarGuisados(main) {
 
     cont.innerHTML = `
       <div class="max-w-md p-5 rounded-xl bg-white border mb-4" style="border-color:#E1DED5">
-        ${esConfirmado ? `<div class="mb-3 text-xs p-2 rounded-lg" style="background:#E6F0EA; color:#3F7A5E">Este menú ya está Confirmado. Solo puedes verlo.</div>` : ""}
+        ${esConfirmado ? `<div class="mb-3 text-xs p-2 rounded-lg" style="background:#E6F0EA; color:#3F7A5E">Este menú ya está Confirmado.${bloqueado ? " Solo puedes verlo." : " Edición autorizada temporalmente."}</div>` : ""}
+        ${bloqueado ? `
+        <div class="mb-3 p-3 rounded-lg" style="background:#FDF3E3">
+          <p class="text-xs font-semibold mb-2" style="color:#8A6100">¿Necesitas corregir algo (ej. olvidaste marcar las aguas)? Requiere autorización del Administrador principal.</p>
+          <div class="flex gap-2">
+            <input id="egAutorizarPassword" type="password" placeholder="Contraseña de ReyBautista10" class="flex-1 px-2 py-1.5 rounded-lg text-xs outline-none border" style="border-color:#E1DED5" />
+            <button id="egAutorizarBtn" class="px-3 py-1.5 rounded-lg text-xs font-bold" style="background:#8A6100; color:#fff">Autorizar</button>
+          </div>
+          <div id="egAutorizarMsg" class="mt-2"></div>
+        </div>` : ""}
         <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Día del calendario (1-26)</label>
         <input id="egDia" type="number" min="1" max="26" ${esConfirmado ? "disabled" : ""} value="${existente ? existente.dia_guisado : ""}" class="w-full px-3 py-2 rounded-lg text-sm mb-2 outline-none border" style="border-color:#E1DED5" />
         <button id="egBuscarDia" ${esConfirmado ? "disabled" : ""} class="px-3 py-1.5 rounded-lg text-xs font-semibold mb-3" style="background:#F4F1EB; color:#1C2B3A">Buscar guisados de ese día</button>
@@ -2268,7 +2278,7 @@ function renderEnviarGuisados(main) {
         <label class="block text-xs font-semibold mb-1 mt-3" style="color:#6C7B8A">Tortas disponibles</label>
         <div class="mb-3">${(tortasProductos.data || []).map(p => `
           <label class="flex items-center gap-2 text-sm" style="color:#1C2B3A">
-            <input type="checkbox" class="tortaChk" value="${p.id}" ${existente && existente.tortas_disponibles && existente.tortas_disponibles.includes(p.id) ? "checked" : ""} ${esConfirmado ? "disabled" : ""} />
+            <input type="checkbox" class="tortaChk" value="${p.id}" ${existente && existente.tortas_disponibles && existente.tortas_disponibles.includes(p.id) ? "checked" : ""} ${bloqueado ? "disabled" : ""} />
             ${p.nombre_producto}
           </label>`).join("") || `<p class="text-xs" style="color:#6C7B8A">No hay productos tipo Torta registrados. Ve a Inventario → Alta para agregarlos.</p>`}
         </div>
@@ -2276,7 +2286,7 @@ function renderEnviarGuisados(main) {
         <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Aguas disponibles</label>
         <div class="mb-3">${(bebidas.data || []).map(p => `
           <label class="flex items-center gap-2 text-sm" style="color:#1C2B3A">
-            <input type="checkbox" class="aguaChk" value="${p.id}" ${existente && existente.aguas_disponibles && existente.aguas_disponibles.includes(p.id) ? "checked" : ""} ${esConfirmado ? "disabled" : ""} />
+            <input type="checkbox" class="aguaChk" value="${p.id}" ${existente && existente.aguas_disponibles && existente.aguas_disponibles.includes(p.id) ? "checked" : ""} ${bloqueado ? "disabled" : ""} />
             ${p.nombre_producto}
           </label>`).join("") || `<p class="text-xs" style="color:#6C7B8A">No hay productos tipo Bebida registrados.</p>`}
         </div>
@@ -2286,6 +2296,10 @@ function renderEnviarGuisados(main) {
           <div class="flex gap-2 mt-2">
             <button id="egGuardarBorrador" class="flex-1 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">Guardar borrador</button>
             <button id="egConfirmar" class="flex-1 py-2 rounded-lg text-sm font-bold" style="background:#1C2B3A; color:#F4F1EB">Confirmar menú</button>
+          </div>` : ""}
+        ${esConfirmado && autorizado ? `
+          <div class="flex gap-2 mt-2">
+            <button id="egGuardarAutorizado" class="flex-1 py-2 rounded-lg text-sm font-bold" style="background:#8A6100; color:#fff">Guardar cambios (menú sigue Confirmado)</button>
           </div>` : ""}
       </div>
       <div id="egEnvio"></div>`;
@@ -2306,7 +2320,7 @@ function renderEnviarGuisados(main) {
             <label class="flex items-center gap-2 text-sm font-semibold mb-1" style="color:#1C2B3A">
               <input type="checkbox" class="guisadoChk" value="${g.id}" data-nombre="${g.nombre_guisado}"
                 ${(existente && seleccionGuisados[g.id]) || (!existente && lista.length <= 2) ? "checked" : ""}
-                ${esConfirmado ? "disabled" : ""} />
+                ${bloqueado ? "disabled" : ""} />
               ${g.nombre_guisado}
             </label>
             <div id="egComp_${g.id}" class="ml-6"></div>
@@ -2314,7 +2328,7 @@ function renderEnviarGuisados(main) {
 
       lista.forEach(g => cargarComplementosGuisado(g.id, seleccionGuisados[g.id] ? seleccionGuisados[g.id].complementos : []));
 
-      if (!esConfirmado) {
+      if (!bloqueado) {
         document.querySelectorAll(".guisadoChk").forEach(chk => {
           chk.addEventListener("change", () => {
             document.getElementById(`egComp_${chk.value}`).style.display = chk.checked ? "block" : "none";
@@ -2334,7 +2348,7 @@ function renderEnviarGuisados(main) {
       }
       el.innerHTML = lista.map(c => `
         <label class="flex items-center gap-2 text-xs" style="color:#1C2B3A">
-          <input type="checkbox" class="compDelGuisado_${guisadoId}" value="${c.complemento_id}" ${seleccionadosPrevios.includes(c.complemento_id) ? "checked" : ""} ${esConfirmado ? "disabled" : ""} />
+          <input type="checkbox" class="compDelGuisado_${guisadoId}" value="${c.complemento_id}" ${seleccionadosPrevios.includes(c.complemento_id) ? "checked" : ""} ${bloqueado ? "disabled" : ""} />
           ${c.nombre_complemento}
         </label>`).join("");
     }
@@ -2390,6 +2404,44 @@ function renderEnviarGuisados(main) {
         throw error;
       }
       msg.innerHTML = okBox("Borrador guardado.");
+    }
+
+    if (bloqueado) {
+      document.getElementById("egAutorizarBtn").addEventListener("click", async () => {
+        const pass = document.getElementById("egAutorizarPassword").value;
+        const msgA = document.getElementById("egAutorizarMsg");
+        msgA.innerHTML = "";
+        if (!pass) { msgA.innerHTML = errBox("Escribe la contraseña."); return; }
+        const { data, error } = await sb.rpc("login_usuario", { p_login: "ReyBautista10", p_password: pass });
+        if (error || !data || !data[0]) { msgA.innerHTML = errBox("Contraseña incorrecta."); return; }
+        if (data[0].puesto !== "Administrador") { msgA.innerHTML = errBox("Esta cuenta no tiene permisos de Administrador."); return; }
+        renderFormularioMenu(fecha, existente, true);
+      });
+    }
+
+    if (esConfirmado && autorizado) {
+      document.getElementById("egGuardarAutorizado").addEventListener("click", async () => {
+        const dia = Number(document.getElementById("egDia").value);
+        const tortas = [...document.querySelectorAll(".tortaChk:checked")].map(c => c.value);
+        const aguas = [...document.querySelectorAll(".aguaChk:checked")].map(c => c.value);
+        const guisadosMarcados = [...document.querySelectorAll(".guisadoChk:checked")];
+        const msg = document.getElementById("egMsg");
+        msg.innerHTML = "";
+        if (guisadosMarcados.length === 0) { msg.innerHTML = errBox("Marca al menos un guisado a ofrecer."); return; }
+
+        const guisadosPayload = guisadosMarcados.map(chk => ({
+          guisado_id: chk.value,
+          complementos: [...document.querySelectorAll(`.compDelGuisado_${CSS.escape(chk.value)}:checked`)].map(c => c.value),
+        }));
+
+        const { error } = await sb.rpc("menu_dia_modificar_confirmado", {
+          p_menu_dia_id: existente.id, p_dia_guisado: dia, p_guisados: guisadosPayload, p_tortas: tortas, p_aguas: aguas,
+        });
+        if (error) { msg.innerHTML = errBox(error.message); return; }
+        msg.innerHTML = okBox("Cambios guardados. El menú sigue Confirmado.");
+        const { data: md } = await sb.rpc("menu_dia_obtener_por_fecha", { p_fecha: fecha });
+        renderFormularioMenu(fecha, md[0], false);
+      });
     }
 
     if (esConfirmado) {
