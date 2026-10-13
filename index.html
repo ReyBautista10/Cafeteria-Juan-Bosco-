@@ -36,6 +36,8 @@ const PASSWORD_RULES = [
 const MENU = [
   { id: "venta_receso", label: "Venta Receso", roles: ["Administrador", "Cajero"] },
   { id: "venta_general", label: "Venta General", roles: ["Administrador", "Cajero"] },
+  { id: "pendientes", label: "Pendientes por despachar", roles: ["Administrador", "Cajero"] },
+  { id: "adeudos", label: "Adeudos", roles: ["Administrador", "Cajero"] },
   { id: "usuario", label: "Usuario", roles: ["Administrador"] },
   { id: "cliente", label: "Cliente", roles: ["Administrador"] },
   { id: "guisados", label: "Guisados", roles: ["Administrador"] },
@@ -193,6 +195,8 @@ function renderSeccion() {
   if (state.seccion === "revisar_pedidos") return renderRevisarPedidos(main);
   if (state.seccion === "venta_receso") return renderVentaReceso(main);
   if (state.seccion === "venta_general") return renderVentaGeneral(main);
+  if (state.seccion === "pendientes") return renderPendientes(main);
+  if (state.seccion === "adeudos") return renderAdeudos(main);
   if (state.seccion === "reportes") return renderReportes(main);
   if (state.seccion === "solicitar_ingredientes") return renderSolicitarIngredientes(main);
   const label = MENU.find(m => m.id === state.seccion)?.label;
@@ -1223,6 +1227,18 @@ function renderVentaReceso(main) {
   document.getElementById("vrBuscarBtn").addEventListener("click", buscarManual);
   document.getElementById("vrBuscarInput").addEventListener("keydown", (e) => { if (e.key === "Enter") buscarManual(); });
 
+  if (state.vrPrecarga) {
+    const crit = state.vrPrecarga;
+    state.vrPrecarga = null;
+    document.getElementById("vrBuscarInput").value = crit;
+    sb.rpc("venta_receso_buscar", { p_criterio: crit }).then(({ data, error }) => {
+      if (error) { document.getElementById("vrResultado").innerHTML = errBox(error.message); return; }
+      const lista = data || [];
+      const elegido = lista.find(x => x.id_cliente === crit) || lista[0];
+      if (elegido) mostrarResultado(elegido);
+    });
+  }
+
   async function iniciarCamara() {
     const msg = document.getElementById("vrCamMsg");
     msg.textContent = "";
@@ -1667,76 +1683,357 @@ function renderVentaReceso(main) {
 
     function abrirModalCobro() {
       const total = totalGeneral();
-      const modal = document.getElementById("vrModal");
-      modal.innerHTML = `
-        <div class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(28,43,58,0.5)">
-          <div class="rounded-xl p-5 bg-white w-80">
-            <p class="text-sm font-semibold mb-1" style="color:#1C2B3A">Cerrar venta</p>
-            <p class="text-sm mb-3" style="color:#6C7B8A">Total a cobrar: <span class="font-bold" style="color:#1C2B3A">$${total.toFixed(2)}</span></p>
-            <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Cantidad recibida</label>
-            <input id="vrMontoRecibido" type="number" step="0.01" class="w-full px-3 py-2 rounded-lg text-sm mb-2 outline-none border" style="border-color:#E1DED5" />
-            <div id="vrCambioTxt" class="text-sm mb-3"></div>
-            <div id="vrModalMsg"></div>
-            <div class="flex gap-2">
-              <button id="vrModalCancelar" class="flex-1 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">Cancelar</button>
-              <button id="vrModalConfirmar" class="flex-1 py-2 rounded-lg text-sm font-bold" style="background:#3F7A5E; color:#fff">Confirmar venta</button>
-            </div>
-          </div>
-        </div>`;
-
-      const montoInput = document.getElementById("vrMontoRecibido");
-      const cambioTxt = document.getElementById("vrCambioTxt");
-      montoInput.addEventListener("input", () => {
-        const recibido = Number(montoInput.value) || 0;
-        if (recibido >= total) {
-          cambioTxt.style.color = "#3F7A5E";
-          cambioTxt.textContent = `Cambio: $${(recibido - total).toFixed(2)}`;
-        } else {
-          cambioTxt.style.color = "#B5453A";
-          cambioTxt.textContent = `Falta: $${(total - recibido).toFixed(2)}`;
-        }
-      });
-
-      document.getElementById("vrModalCancelar").addEventListener("click", () => { modal.innerHTML = ""; });
-
-      document.getElementById("vrModalConfirmar").addEventListener("click", async () => {
-        const recibido = Number(montoInput.value) || 0;
-        const msg = document.getElementById("vrModalMsg");
-        msg.innerHTML = "";
-        if (recibido < total) { msg.innerHTML = errBox("La cantidad recibida debe ser igual o mayor al total."); return; }
-
-        const reg_complementos = extrasCaja.filter(e => e.tipo === "Complemento").map(e => ({ complemento_id: e.referencia_id, cantidad: e.cantidad }));
-        const reg_productos = extrasCaja.filter(e => e.tipo === "Producto").map(e => ({ producto_id: e.referencia_id, cantidad: e.cantidad }));
-        const guisadoExtraQty = extrasCaja.filter(e => e.tipo === "Guisado").reduce((s, e) => s + e.cantidad, 0);
-        const aguaExtra = extrasCaja.find(e => e.tipo === "Agua");
-
-        const { data, error } = await sb.rpc("venta_receso_cerrar_venta", {
-          p_pedido_id: r.pedido_id,
-          p_cajero_id: state.usuario.id,
-          p_monto_recibido: recibido,
-          p_reg_guisado_cantidad: guisadoExtraQty,
-          p_reg_complementos: reg_complementos,
-          p_reg_agua_producto_id: aguaExtra ? aguaExtra.referencia_id : null,
-          p_reg_agua_cantidad: aguaExtra ? aguaExtra.cantidad : 0,
-          p_reg_productos: reg_productos,
-        });
-        if (error) { msg.innerHTML = errBox(error.message); return; }
-
-        modal.innerHTML = `
-          <div class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(28,43,58,0.5)">
-            <div class="rounded-xl p-5 bg-white w-80 text-center">
-              <p class="text-sm font-bold mb-2" style="color:#3F7A5E">✓ Venta cerrada</p>
-              <p class="text-xs mb-1" style="color:#1C2B3A">Folio ${data[0].folio_venta}</p>
-              <p class="text-xs mb-1" style="color:#1C2B3A">Total: $${Number(data[0].total).toFixed(2)}</p>
-              <p class="text-xs" style="color:#1C2B3A">Cambio: $${Number(data[0].cambio).toFixed(2)}</p>
-            </div>
-          </div>`;
-        setTimeout(() => renderVentaReceso(document.getElementById("main")), 1800);
+      abrirModalCobroComun({
+        contenedor: document.getElementById("vrModal"),
+        total,
+        clienteFijo: { id: r.cliente_id, nombre_cliente: r.nombre_cliente },
+        enviar: async ({ recibido, aCredito }) => {
+          const reg_complementos = extrasCaja.filter(e => e.tipo === "Complemento").map(e => ({ complemento_id: e.referencia_id, cantidad: e.cantidad }));
+          const reg_productos = extrasCaja.filter(e => e.tipo === "Producto").map(e => ({ producto_id: e.referencia_id, cantidad: e.cantidad }));
+          const guisadoExtraQty = extrasCaja.filter(e => e.tipo === "Guisado").reduce((s, e) => s + e.cantidad, 0);
+          const aguaExtra = extrasCaja.find(e => e.tipo === "Agua");
+          return sb.rpc("venta_receso_cerrar_venta", {
+            p_pedido_id: r.pedido_id,
+            p_cajero_id: state.usuario.id,
+            p_monto_recibido: recibido,
+            p_reg_guisado_cantidad: guisadoExtraQty,
+            p_reg_complementos: reg_complementos,
+            p_reg_agua_producto_id: aguaExtra ? aguaExtra.referencia_id : null,
+            p_reg_agua_cantidad: aguaExtra ? aguaExtra.cantidad : 0,
+            p_reg_productos: reg_productos,
+            p_a_credito: aCredito,
+          });
+        },
+        alTerminar: () => renderVentaReceso(document.getElementById("main")),
       });
     }
 
     pintar();
   }
+}
+
+
+// ============================================================
+// Modal de cobro compartido (Venta Receso y Venta General): cobrar o dejar a adeudo
+// ============================================================
+function abrirModalCobroComun({ contenedor, total, clienteFijo, enviar, alTerminar }) {
+  let aCredito = false;
+  let cliente = clienteFijo || null;
+  let monto = "";
+  let resultadosBusqueda = [];
+
+  function infoHTML() {
+    const recibido = Number(monto) || 0;
+    if (aCredito) {
+      const queda = Math.max(0, total - recibido);
+      return `<span style="color:#B8862E">Quedará a deuda: <b>$${queda.toFixed(2)}</b></span>`;
+    }
+    return recibido >= total
+      ? `<span style="color:#3F7A5E">Cambio: $${(recibido - total).toFixed(2)}</span>`
+      : `<span style="color:#B5453A">Falta: $${(total - recibido).toFixed(2)}</span>`;
+  }
+
+  function pintarModal() {
+    const btnModo = (id, activo, texto) => `<button id="${id}" class="flex-1 py-1.5 rounded-lg text-xs font-semibold" style="background:${activo ? "#1C2B3A" : "#F4F1EB"}; color:${activo ? "#fff" : "#1C2B3A"}">${texto}</button>`;
+    let seccionCliente = "";
+    if (aCredito) {
+      if (cliente) {
+        seccionCliente = `<div class="p-2 rounded-lg mb-3" style="background:#F4F1EB">
+          <p class="text-xs" style="color:#6C7B8A">Alumno</p>
+          <p class="text-sm font-semibold" style="color:#1C2B3A">${cliente.nombre_cliente}</p>
+          ${clienteFijo ? "" : `<button id="cbCambiarCliente" class="text-xs underline" style="color:#1C2B3A">Cambiar</button>`}
+        </div>`;
+      } else {
+        seccionCliente = `<div class="mb-3">
+          <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Buscar alumno (a quien se le fía)</label>
+          <div class="flex gap-2">
+            <input id="cbBuscar" placeholder="Nombre o folio…" class="flex-1 px-3 py-2 rounded-lg text-sm outline-none border" style="border-color:#E1DED5" />
+            <button id="cbBuscarBtn" class="px-3 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">Buscar</button>
+          </div>
+          <div id="cbResultados" class="mt-2"></div>
+        </div>`;
+      }
+    }
+    contenedor.innerHTML = `
+      <div class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(28,43,58,0.5)">
+        <div class="rounded-xl p-5 bg-white w-80 overflow-y-auto" style="max-height:90vh">
+          <p class="text-sm font-semibold mb-1" style="color:#1C2B3A">Cerrar venta</p>
+          <p class="text-sm mb-3" style="color:#6C7B8A">Total: <span class="font-bold" style="color:#1C2B3A">$${total.toFixed(2)}</span></p>
+          <div class="flex gap-2 mb-3">
+            ${btnModo("cbModoCobrar", !aCredito, "Cobrar ahora")}
+            ${btnModo("cbModoAdeudo", aCredito, "Dejar a adeudo")}
+          </div>
+          ${seccionCliente}
+          <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">${aCredito ? "Abono ahora (opcional)" : "Cantidad recibida"}</label>
+          <input id="cbMonto" type="number" step="0.01" value="${monto}" class="w-full px-3 py-2 rounded-lg text-sm mb-2 outline-none border" style="border-color:#E1DED5" />
+          <div id="cbInfo" class="text-sm mb-3">${infoHTML()}</div>
+          <div id="cbMsg"></div>
+          <div class="flex gap-2">
+            <button id="cbCancelar" class="flex-1 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">Cancelar</button>
+            <button id="cbConfirmar" class="flex-1 py-2 rounded-lg text-sm font-bold" style="background:${aCredito ? "#B8862E" : "#3F7A5E"}; color:#fff">${aCredito ? "Guardar adeudo" : "Confirmar venta"}</button>
+          </div>
+        </div>
+      </div>`;
+
+    document.getElementById("cbModoCobrar").addEventListener("click", () => { aCredito = false; pintarModal(); });
+    document.getElementById("cbModoAdeudo").addEventListener("click", () => { aCredito = true; pintarModal(); });
+    document.getElementById("cbMonto").addEventListener("input", (e) => {
+      monto = e.target.value;
+      document.getElementById("cbInfo").innerHTML = infoHTML();
+    });
+    document.getElementById("cbCancelar").addEventListener("click", () => { contenedor.innerHTML = ""; });
+
+    const cambiar = document.getElementById("cbCambiarCliente");
+    if (cambiar) cambiar.addEventListener("click", () => { cliente = null; resultadosBusqueda = []; pintarModal(); });
+
+    const btnBuscar = document.getElementById("cbBuscarBtn");
+    if (btnBuscar) {
+      const buscar = async () => {
+        const crit = document.getElementById("cbBuscar").value.trim();
+        const cont = document.getElementById("cbResultados");
+        if (!crit) { cont.innerHTML = ""; return; }
+        cont.innerHTML = `<p class="text-xs" style="color:#6C7B8A">Buscando…</p>`;
+        const { data, error } = await sb.rpc("clientes_buscar", { p_criterio: crit });
+        if (error) { cont.innerHTML = errBox(error.message); return; }
+        resultadosBusqueda = (data || []).filter(c => c.activo);
+        cont.innerHTML = resultadosBusqueda.length === 0
+          ? `<p class="text-xs" style="color:#6C7B8A">Sin resultados.</p>`
+          : resultadosBusqueda.map((c, i) => `<button class="cbResBtn w-full text-left px-3 py-2 rounded-lg text-sm bg-white border mb-1" data-i="${i}" style="border-color:#E1DED5; color:#1C2B3A">${c.nombre_cliente} <span class="text-xs" style="color:#6C7B8A">(${c.id_cliente})</span></button>`).join("");
+        cont.querySelectorAll(".cbResBtn").forEach(b => b.addEventListener("click", () => {
+          cliente = resultadosBusqueda[Number(b.dataset.i)];
+          pintarModal();
+        }));
+      };
+      btnBuscar.addEventListener("click", buscar);
+      document.getElementById("cbBuscar").addEventListener("keydown", (e) => { if (e.key === "Enter") buscar(); });
+    }
+
+    document.getElementById("cbConfirmar").addEventListener("click", async () => {
+      const recibido = Number(monto) || 0;
+      const msg = document.getElementById("cbMsg");
+      msg.innerHTML = "";
+      if (aCredito) {
+        if (!cliente) { msg.innerHTML = errBox("Elige al alumno al que se le deja el adeudo."); return; }
+        if (recibido >= total) { msg.innerHTML = errBox("El abono cubre el total. Usa «Cobrar ahora»."); return; }
+      } else if (recibido < total) {
+        msg.innerHTML = errBox("La cantidad recibida debe ser igual o mayor al total."); return;
+      }
+      const btn = document.getElementById("cbConfirmar");
+      btn.disabled = true; btn.style.opacity = "0.6";
+      const { data, error } = await enviar({ recibido, aCredito, clienteId: cliente ? cliente.id : null });
+      if (error) { msg.innerHTML = errBox(error.message); btn.disabled = false; btn.style.opacity = "1"; return; }
+      const res = data[0];
+      contenedor.innerHTML = `
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(28,43,58,0.5)">
+          <div class="rounded-xl p-5 bg-white w-80 text-center">
+            <p class="text-sm font-bold mb-2" style="color:${aCredito ? "#B8862E" : "#3F7A5E"}">${aCredito ? "✓ Adeudo registrado" : "✓ Venta cerrada"}</p>
+            <p class="text-xs mb-1" style="color:#1C2B3A">Folio ${res.folio_venta}</p>
+            <p class="text-xs mb-1" style="color:#1C2B3A">Total: $${Number(res.total).toFixed(2)}</p>
+            ${aCredito
+              ? `<p class="text-xs" style="color:#1C2B3A">${cliente.nombre_cliente} debe: $${(Number(res.total) - recibido).toFixed(2)}</p>`
+              : `<p class="text-xs" style="color:#1C2B3A">Cambio: $${Number(res.cambio).toFixed(2)}</p>`}
+          </div>
+        </div>`;
+      setTimeout(alTerminar, 1800);
+    });
+  }
+
+  pintarModal();
+}
+
+// ============================================================
+// Módulo Pendientes por despachar
+// ============================================================
+async function renderPendientes(main) {
+  main.innerHTML = `<p class="text-xs" style="color:#6C7B8A">Cargando…</p>`;
+  window.__pendTimer && clearInterval(window.__pendTimer);
+  const abiertos = new Set();
+
+  async function cargar(silencioso) {
+    const { data, error } = await sb.rpc("pendientes_despachar_obtener");
+    if (!document.getElementById("pendLista") && silencioso) { clearInterval(window.__pendTimer); return; }
+    if (error) { main.innerHTML = errBox(error.message); return; }
+    pintar(data || []);
+  }
+
+  function pintar(filas) {
+    const grupos = {};
+    filas.forEach(f => { (grupos[f.platillo] = grupos[f.platillo] || []).push(f); });
+    const nombres = Object.keys(grupos).sort((a, b) => a.localeCompare(b, "es"));
+    const totalPlatillos = filas.reduce((s, f) => s + Number(f.cantidad), 0);
+    const alumnos = new Set(filas.map(f => f.cliente_id)).size;
+
+    main.innerHTML = `
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-bold" style="color:#1C2B3A">Pendientes por despachar</h2>
+        <button id="pendRefrescar" class="px-3 py-1.5 rounded-lg text-xs font-semibold" style="background:#F4F1EB; color:#1C2B3A">↻ Actualizar</button>
+      </div>
+      <div class="max-w-md" id="pendLista">
+        <div class="grid grid-cols-2 gap-3 mb-4">
+          <div class="p-3 rounded-xl bg-white border" style="border-color:#E1DED5"><p class="text-xs" style="color:#6C7B8A">Platillos por entregar</p><p class="text-2xl font-bold" style="color:#1C2B3A">${totalPlatillos}</p></div>
+          <div class="p-3 rounded-xl bg-white border" style="border-color:#E1DED5"><p class="text-xs" style="color:#6C7B8A">Alumnos esperando</p><p class="text-2xl font-bold" style="color:#1C2B3A">${alumnos}</p></div>
+        </div>
+        ${nombres.length === 0 ? `<p class="text-sm" style="color:#6C7B8A">No hay pedidos pendientes de hoy. 🎉</p>` : nombres.map(n => {
+          const lista = grupos[n];
+          const cant = lista.reduce((s, f) => s + Number(f.cantidad), 0);
+          const abierto = abiertos.has(n);
+          return `
+          <div class="rounded-xl bg-white border mb-2" style="border-color:#E1DED5">
+            <button class="pendToggle w-full flex items-center justify-between px-4 py-3 text-left" data-n="${encodeURIComponent(n)}">
+              <span class="text-sm font-semibold" style="color:#1C2B3A">${n}</span>
+              <span class="text-lg font-bold" style="color:#B8862E">${cant} ${abierto ? "▲" : "▼"}</span>
+            </button>
+            ${abierto ? `<div class="px-4 pb-3">${lista.map(f => `
+              <div class="flex items-center justify-between py-1.5 border-t" style="border-color:#F0EDE6">
+                <div>
+                  <p class="text-sm" style="color:#1C2B3A">${f.nombre_cliente}${Number(f.cantidad) > 1 ? ` ×${f.cantidad}` : ""}</p>
+                  ${f.observaciones ? `<p class="text-xs" style="color:#B5453A">${f.observaciones}</p>` : ""}
+                </div>
+                <button class="pendAtender px-2 py-1 rounded-lg text-xs font-semibold" data-id="${f.id_cliente}" style="background:#1C2B3A; color:#fff">Atender</button>
+              </div>`).join("")}</div>` : ""}
+          </div>`;
+        }).join("")}
+        <p class="text-xs mt-3" style="color:#6C7B8A">Cuando cierras la venta de un alumno (cobrada o a adeudo), sale solo de esta lista. Se actualiza cada 20 segundos.</p>
+      </div>`;
+
+    document.getElementById("pendRefrescar").addEventListener("click", () => cargar(false));
+    main.querySelectorAll(".pendToggle").forEach(b => b.addEventListener("click", () => {
+      const n = decodeURIComponent(b.dataset.n);
+      if (abiertos.has(n)) abiertos.delete(n); else abiertos.add(n);
+      pintar(filas);
+    }));
+    main.querySelectorAll(".pendAtender").forEach(b => b.addEventListener("click", () => {
+      state.vrPrecarga = b.dataset.id;
+      state.seccion = "venta_receso";
+      clearInterval(window.__pendTimer);
+      renderApp();
+    }));
+  }
+
+  await cargar(false);
+  window.__pendTimer = setInterval(() => cargar(true), 20000);
+}
+
+// ============================================================
+// Módulo Adeudos
+// ============================================================
+async function renderAdeudos(main) {
+  main.innerHTML = `<p class="text-xs" style="color:#6C7B8A">Cargando…</p>`;
+  const dinero = (n) => "$" + Number(n).toFixed(2);
+  let lista = [];
+  let filtro = "";
+  let abierto = null;       // cliente_id con detalle abierto
+  let detalle = null;       // { adeudos, pagos }
+
+  async function cargar() {
+    const { data, error } = await sb.rpc("adeudos_resumen_listar");
+    if (error) { main.innerHTML = errBox(error.message); return; }
+    lista = data || [];
+    pintar();
+  }
+
+  function pintar() {
+    const visibles = lista.filter(c => (c.nombre_cliente + " " + c.id_cliente).toLowerCase().includes(filtro.toLowerCase()));
+    const totalPend = lista.reduce((s, c) => s + Number(c.saldo_total), 0);
+    main.innerHTML = `
+      <h2 class="text-lg font-bold mb-4" style="color:#1C2B3A">Adeudos</h2>
+      <div class="max-w-lg">
+        <div class="p-4 rounded-xl bg-white border mb-3" style="border-color:#E1DED5">
+          <p class="text-xs" style="color:#6C7B8A">Total pendiente por cobrar</p>
+          <p class="text-2xl font-bold" style="color:#B5453A">${dinero(totalPend)}</p>
+          <p class="text-xs" style="color:#6C7B8A">${lista.length} alumno(s) con adeudo</p>
+        </div>
+        <input id="adFiltro" value="${filtro.replace(/"/g, "&quot;")}" placeholder="Buscar alumno…" class="w-full px-3 py-2 rounded-lg text-sm mb-3 outline-none border" style="border-color:#E1DED5" />
+        ${visibles.length === 0 ? `<p class="text-sm" style="color:#6C7B8A">${lista.length === 0 ? "No hay adeudos pendientes." : "Sin resultados."}</p>` : visibles.map(c => `
+          <div class="rounded-xl bg-white border mb-2" style="border-color:#E1DED5">
+            <button class="adToggle w-full flex items-center justify-between px-4 py-3 text-left" data-id="${c.cliente_id}">
+              <span>
+                <span class="block text-sm font-semibold" style="color:#1C2B3A">${c.nombre_cliente}</span>
+                <span class="block text-xs" style="color:#6C7B8A">${c.id_cliente} · ${c.num_adeudos} adeudo(s)</span>
+              </span>
+              <span class="text-base font-bold" style="color:#B5453A">${dinero(c.saldo_total)}</span>
+            </button>
+            ${abierto === c.cliente_id ? `<div class="px-4 pb-4" id="adDetalle">${detalle ? htmlDetalle(c) : `<p class="text-xs" style="color:#6C7B8A">Cargando…</p>`}</div>` : ""}
+          </div>`).join("")}
+      </div>`;
+
+    document.getElementById("adFiltro").addEventListener("input", (e) => {
+      filtro = e.target.value; pintar();
+      const el = document.getElementById("adFiltro"); el.focus(); el.setSelectionRange(filtro.length, filtro.length);
+    });
+    main.querySelectorAll(".adToggle").forEach(b => b.addEventListener("click", async () => {
+      const id = b.dataset.id;
+      if (abierto === id) { abierto = null; detalle = null; pintar(); return; }
+      abierto = id; detalle = null; pintar();
+      await cargarDetalle(id);
+    }));
+    if (abierto && detalle) enlazarDetalle();
+  }
+
+  async function cargarDetalle(id) {
+    const [a, p] = await Promise.all([
+      sb.rpc("adeudos_cliente_detalle", { p_cliente_id: id }),
+      sb.rpc("adeudo_pagos_listar", { p_cliente_id: id }),
+    ]);
+    if (a.error || p.error) { const el = document.getElementById("adDetalle"); if (el) el.innerHTML = errBox((a.error || p.error).message); return; }
+    detalle = { adeudos: a.data || [], pagos: p.data || [] };
+    pintar();
+  }
+
+  function htmlDetalle(c) {
+    const f = (d) => new Date(d).toLocaleDateString("es-MX");
+    return `
+      <div class="border-t pt-2" style="border-color:#F0EDE6">
+        ${detalle.adeudos.map(a => `
+          <div class="py-1.5">
+            <div class="flex justify-between text-xs" style="color:#6C7B8A"><span>${f(a.creado_en)} · ${a.folio_venta} (${a.origen})</span><b style="color:#1C2B3A">${dinero(a.saldo)}</b></div>
+            <p class="text-xs" style="color:#1C2B3A">${a.detalle || ""}</p>
+            ${Number(a.pagado) > 0 ? `<p class="text-xs" style="color:#3F7A5E">Abonado: ${dinero(a.pagado)} de ${dinero(a.total)}</p>` : ""}
+          </div>`).join("")}
+        ${detalle.pagos.length ? `<p class="text-xs font-semibold mt-2" style="color:#6C7B8A">Últimos abonos</p>` + detalle.pagos.map(p => `<p class="text-xs" style="color:#1C2B3A">${f(p.creado_en)} — ${dinero(p.monto)}</p>`).join("") : ""}
+        <div class="mt-3">
+          <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Registrar abono</label>
+          <div class="flex gap-2">
+            <input id="adMonto" type="number" step="0.01" placeholder="Monto" class="flex-1 px-3 py-2 rounded-lg text-sm outline-none border" style="border-color:#E1DED5" />
+            <button id="adAbonar" class="px-3 py-2 rounded-lg text-sm font-bold" style="background:#3F7A5E; color:#fff">Abonar</button>
+          </div>
+          <button id="adLiquidar" class="w-full mt-2 py-2 rounded-lg text-xs font-semibold" style="background:#F4F1EB; color:#1C2B3A">Liquidar todo (${dinero(c.saldo_total)})</button>
+          <div id="adMsg" class="mt-2"></div>
+          <button id="adWhats" class="w-full mt-1 py-2 rounded-lg text-xs font-bold" style="background:#25D366; color:#fff">📲 Enviar recordatorio por WhatsApp</button>
+        </div>
+      </div>`;
+  }
+
+  function enlazarDetalle() {
+    const c = lista.find(x => x.cliente_id === abierto);
+    if (!c) return;
+    const msg = document.getElementById("adMsg");
+
+    async function abonar(monto) {
+      msg.innerHTML = "";
+      if (!(monto > 0)) { msg.innerHTML = errBox("Escribe un monto mayor a cero."); return; }
+      const { error } = await sb.rpc("adeudo_abonar", { p_cliente_id: c.cliente_id, p_monto: monto, p_cajero_id: state.usuario.id });
+      if (error) { msg.innerHTML = errBox(error.message); return; }
+      const id = abierto;
+      await cargar();
+      if (lista.find(x => x.cliente_id === id)) { abierto = id; detalle = null; pintar(); await cargarDetalle(id); }
+      else { abierto = null; detalle = null; pintar(); }
+    }
+
+    document.getElementById("adAbonar").addEventListener("click", () => abonar(Number(document.getElementById("adMonto").value)));
+    document.getElementById("adLiquidar").addEventListener("click", () => {
+      if (confirm(`¿Registrar el pago total de ${dinero(c.saldo_total)} de ${c.nombre_cliente}?`)) abonar(Number(c.saldo_total));
+    });
+    document.getElementById("adWhats").addEventListener("click", () => {
+      const f = (d) => new Date(d).toLocaleDateString("es-MX");
+      const lineas = detalle.adeudos.map(a => `• ${f(a.creado_en)}: ${a.detalle || a.folio_venta} — ${dinero(a.saldo)}`).join("\n");
+      const texto = `Estimado Padre de familia o Tutor de ${c.nombre_cliente}:\n\nLe recordamos que tiene un saldo pendiente en la Cafetería Juan Bosco por ${dinero(c.saldo_total)}.\n\nDetalle:\n${lineas}\n\nAgradecemos su apoyo. ¡Que tenga un excelente día!`;
+      const tel = String(c.telefono || "").replace(/\D/g, "");
+      window.open(`https://wa.me/${tel.length === 10 ? "52" + tel : tel}?text=${encodeURIComponent(texto)}`, "_blank");
+    });
+  }
+
+  await cargar();
 }
 
 // ============================================================
@@ -1858,63 +2155,21 @@ function renderVentaGeneral(main) {
 
   function abrirModalCobro() {
     const total = totalGeneral();
-    const modal = document.getElementById("vgModal");
-    modal.innerHTML = `
-      <div class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(28,43,58,0.5)">
-        <div class="rounded-xl p-5 bg-white w-80">
-          <p class="text-sm font-semibold mb-1" style="color:#1C2B3A">Cerrar venta</p>
-          <p class="text-sm mb-3" style="color:#6C7B8A">Total a cobrar: <span class="font-bold" style="color:#1C2B3A">$${total.toFixed(2)}</span></p>
-          <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Cantidad recibida</label>
-          <input id="vgMontoRecibido" type="number" step="0.01" class="w-full px-3 py-2 rounded-lg text-sm mb-2 outline-none border" style="border-color:#E1DED5" />
-          <div id="vgCambioTxt" class="text-sm mb-3"></div>
-          <div id="vgModalMsg"></div>
-          <div class="flex gap-2">
-            <button id="vgModalCancelar" class="flex-1 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">Cancelar</button>
-            <button id="vgModalConfirmar" class="flex-1 py-2 rounded-lg text-sm font-bold" style="background:#3F7A5E; color:#fff">Confirmar venta</button>
-          </div>
-        </div>
-      </div>`;
-
-    const montoInput = document.getElementById("vgMontoRecibido");
-    const cambioTxt = document.getElementById("vgCambioTxt");
-    montoInput.addEventListener("input", () => {
-      const recibido = Number(montoInput.value) || 0;
-      if (recibido >= total) {
-        cambioTxt.style.color = "#3F7A5E";
-        cambioTxt.textContent = `Cambio: $${(recibido - total).toFixed(2)}`;
-      } else {
-        cambioTxt.style.color = "#B5453A";
-        cambioTxt.textContent = `Falta: $${(total - recibido).toFixed(2)}`;
-      }
-    });
-
-    document.getElementById("vgModalCancelar").addEventListener("click", () => { modal.innerHTML = ""; });
-
-    document.getElementById("vgModalConfirmar").addEventListener("click", async () => {
-      const recibido = Number(montoInput.value) || 0;
-      const msg = document.getElementById("vgModalMsg");
-      msg.innerHTML = "";
-      if (recibido < total) { msg.innerHTML = errBox("La cantidad recibida debe ser igual o mayor al total."); return; }
-
-      const p_productos = carrito.map(l => ({ producto_id: l.producto_id, cantidad: l.cantidad }));
-
-      const { data, error } = await sb.rpc("venta_general_cerrar_venta", {
-        p_cajero_id: state.usuario.id,
-        p_monto_recibido: recibido,
-        p_productos,
-      });
-      if (error) { msg.innerHTML = errBox(error.message); return; }
-
-      modal.innerHTML = `
-        <div class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(28,43,58,0.5)">
-          <div class="rounded-xl p-5 bg-white w-80 text-center">
-            <p class="text-sm font-bold mb-2" style="color:#3F7A5E">✓ Venta cerrada</p>
-            <p class="text-xs mb-1" style="color:#1C2B3A">Folio ${data[0].folio_venta}</p>
-            <p class="text-xs mb-1" style="color:#1C2B3A">Total: $${Number(data[0].total).toFixed(2)}</p>
-            <p class="text-xs" style="color:#1C2B3A">Cambio: $${Number(data[0].cambio).toFixed(2)}</p>
-          </div>
-        </div>`;
-      setTimeout(() => renderVentaGeneral(document.getElementById("main")), 1800);
+    abrirModalCobroComun({
+      contenedor: document.getElementById("vgModal"),
+      total,
+      clienteFijo: null,
+      enviar: async ({ recibido, aCredito, clienteId }) => {
+        const p_productos = carrito.map(l => ({ producto_id: l.producto_id, cantidad: l.cantidad }));
+        return sb.rpc("venta_general_cerrar_venta", {
+          p_cajero_id: state.usuario.id,
+          p_monto_recibido: recibido,
+          p_productos,
+          p_a_credito: aCredito,
+          p_cliente_id: clienteId || null,
+        });
+      },
+      alTerminar: () => renderVentaGeneral(document.getElementById("main")),
     });
   }
 }
@@ -2001,13 +2256,15 @@ function renderReportes(main) {
     const cont = document.getElementById("repContenido");
     cont.innerHTML = `<p class="text-xs" style="color:#6C7B8A">Cargando…</p>`;
 
-    const [resumenRes, guisadosRes, aguasRes, productosRes, complementosRes] = await Promise.all([
+    const [resumenRes, guisadosRes, aguasRes, productosRes, complementosRes, adeudosRes] = await Promise.all([
       sb.rpc("reportes_resumen_ventas", { p_desde: rango.desde, p_hasta: rango.hasta }),
       sb.rpc("reportes_top_guisados", { p_desde: rango.desde, p_hasta: rango.hasta, p_limite: 10 }),
       sb.rpc("reportes_top_aguas", { p_desde: rango.desde, p_hasta: rango.hasta, p_limite: 10 }),
       sb.rpc("reportes_top_productos_venta_general", { p_desde: rango.desde, p_hasta: rango.hasta, p_limite: 10 }),
       sb.rpc("reportes_top_complementos", { p_desde: rango.desde, p_hasta: rango.hasta, p_limite: 10 }),
+      sb.rpc("reportes_adeudos_resumen", { p_desde: rango.desde, p_hasta: rango.hasta }),
     ]);
+    const adeudosR = ((adeudosRes && adeudosRes.data) || [])[0] || {};
 
     if (resumenRes.error) { cont.innerHTML = errBox(resumenRes.error.message); return; }
     const resumen = (resumenRes.data || [])[0] || {};
@@ -2055,6 +2312,16 @@ function renderReportes(main) {
           <p class="text-base font-bold" style="color:#1C2B3A">$${Number(resumen.total_venta_general || 0).toFixed(2)}</p>
           <p class="text-xs" style="color:#6C7B8A">${resumen.num_ventas_general || 0} ventas</p>
         </div>
+      </div>
+
+      <div class="p-4 rounded-xl bg-white border mb-4" style="border-color:#E1DED5">
+        <p class="text-sm font-semibold mb-2" style="color:#1C2B3A">Adeudos</p>
+        <div class="grid grid-cols-3 gap-2 text-xs" style="color:#6C7B8A">
+          <div>Fiado en el periodo<p class="text-base font-bold" style="color:#B8862E">$${Number(adeudosR.fiado_periodo || 0).toFixed(2)}</p></div>
+          <div>Abonos recibidos<p class="text-base font-bold" style="color:#3F7A5E">$${Number(adeudosR.abonos_periodo || 0).toFixed(2)}</p></div>
+          <div>Pendiente total<p class="text-base font-bold" style="color:#B5453A">$${Number(adeudosR.pendiente_total || 0).toFixed(2)}</p></div>
+        </div>
+        <p class="text-xs mt-2" style="color:#6C7B8A">El «Total del periodo» incluye lo vendido a adeudo; aquí ves cuánto de eso aún no se cobra.</p>
       </div>
 
       ${tablaRanking("Guisados más pedidos", (guisadosRes.data || []).map(g => ({ nombre: g.nombre_guisado, cantidad_vendida: g.cantidad_vendida, importe_total: g.importe_total })), "Guisado")}
