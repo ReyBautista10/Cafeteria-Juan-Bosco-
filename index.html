@@ -1721,6 +1721,12 @@ function abrirModalCobroComun({ contenedor, total, clienteFijo, enviar, alTermin
   let cliente = clienteFijo || null;
   let monto = "";
   let resultadosBusqueda = [];
+  let mostrarManual = false;
+  let streamCb = null;
+
+  function detenerCamaraCb() {
+    if (streamCb) { streamCb.getTracks().forEach(t => t.stop()); streamCb = null; }
+  }
 
   function infoHTML() {
     const recibido = Number(monto) || 0;
@@ -1734,6 +1740,7 @@ function abrirModalCobroComun({ contenedor, total, clienteFijo, enviar, alTermin
   }
 
   function pintarModal() {
+    detenerCamaraCb();
     const btnModo = (id, activo, texto) => `<button id="${id}" class="flex-1 py-1.5 rounded-lg text-xs font-semibold" style="background:${activo ? "#1C2B3A" : "#F4F1EB"}; color:${activo ? "#fff" : "#1C2B3A"}">${texto}</button>`;
     let seccionCliente = "";
     if (aCredito) {
@@ -1745,12 +1752,20 @@ function abrirModalCobroComun({ contenedor, total, clienteFijo, enviar, alTermin
         </div>`;
       } else {
         seccionCliente = `<div class="mb-3">
-          <label class="block text-xs font-semibold mb-1" style="color:#6C7B8A">Buscar alumno (a quien se le fía)</label>
-          <div class="flex gap-2">
-            <input id="cbBuscar" placeholder="Nombre o folio…" class="flex-1 px-3 py-2 rounded-lg text-sm outline-none border" style="border-color:#E1DED5" />
-            <button id="cbBuscarBtn" class="px-3 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">Buscar</button>
-          </div>
-          <div id="cbResultados" class="mt-2"></div>
+          <p class="text-xs font-semibold mb-1" style="color:#6C7B8A">Escanea el gafete (QR) del alumno</p>
+          <video id="cbVideo" class="w-full rounded-lg bg-black" style="max-height:200px; object-fit:cover" playsinline muted></video>
+          <canvas id="cbCanvas" style="display:none"></canvas>
+          <button id="cbCamara" class="w-full mt-2 py-2 rounded-lg text-sm font-semibold" style="background:#1C2B3A; color:#F4F1EB">Activar cámara</button>
+          <p id="cbCamMsg" class="text-xs mt-1" style="color:#B5453A"></p>
+          <button id="cbManualToggle" class="text-xs underline mt-2" style="color:#6C7B8A">${mostrarManual ? "Ocultar búsqueda por nombre" : "¿Sin gafete? Buscar por nombre"}</button>
+          ${mostrarManual ? `
+          <div class="mt-2">
+            <div class="flex gap-2">
+              <input id="cbBuscar" placeholder="Nombre o folio…" class="flex-1 px-3 py-2 rounded-lg text-sm outline-none border" style="border-color:#E1DED5" />
+              <button id="cbBuscarBtn" class="px-3 py-2 rounded-lg text-sm font-semibold" style="background:#F4F1EB; color:#1C2B3A">Buscar</button>
+            </div>
+            <div id="cbResultados" class="mt-2"></div>
+          </div>` : ""}
         </div>`;
       }
     }
@@ -1781,7 +1796,54 @@ function abrirModalCobroComun({ contenedor, total, clienteFijo, enviar, alTermin
       monto = e.target.value;
       document.getElementById("cbInfo").innerHTML = infoHTML();
     });
-    document.getElementById("cbCancelar").addEventListener("click", () => { contenedor.innerHTML = ""; });
+    document.getElementById("cbCancelar").addEventListener("click", () => { detenerCamaraCb(); contenedor.innerHTML = ""; });
+
+    const btnCam = document.getElementById("cbCamara");
+    if (btnCam) {
+      const camMsg = document.getElementById("cbCamMsg");
+      const iniciar = async () => {
+        camMsg.textContent = "";
+        try {
+          streamCb = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+          const video = document.getElementById("cbVideo");
+          video.srcObject = streamCb;
+          await video.play();
+          btnCam.style.display = "none";
+          requestAnimationFrame(escanear);
+        } catch (err) {
+          camMsg.textContent = "No se pudo activar la cámara: " + err.message;
+        }
+      };
+      const escanear = async () => {
+        if (!streamCb) return;
+        const video = document.getElementById("cbVideo");
+        const canvas = document.getElementById("cbCanvas");
+        if (video && canvas && video.readyState === video.HAVE_ENOUGH_DATA) {
+          canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const codigo = jsQR(img.data, img.width, img.height);
+          if (codigo && codigo.data) {
+            detenerCamaraCb();
+            const { data, error } = await sb.rpc("venta_receso_por_qr", { p_qr_token: codigo.data });
+            if (error || !data || !data[0]) {
+              camMsg.textContent = error ? error.message : "QR no reconocido. Intenta de nuevo.";
+              btnCam.style.display = "block";
+              return;
+            }
+            cliente = { id: data[0].cliente_id, nombre_cliente: data[0].nombre_cliente, id_cliente: data[0].id_cliente };
+            pintarModal();
+            return;
+          }
+        }
+        requestAnimationFrame(escanear);
+      };
+      btnCam.addEventListener("click", iniciar);
+      if (!mostrarManual) iniciar();
+    }
+    const btnManual = document.getElementById("cbManualToggle");
+    if (btnManual) btnManual.addEventListener("click", () => { mostrarManual = !mostrarManual; pintarModal(); });
 
     const cambiar = document.getElementById("cbCambiarCliente");
     if (cambiar) cambiar.addEventListener("click", () => { cliente = null; resultadosBusqueda = []; pintarModal(); });
@@ -1818,6 +1880,7 @@ function abrirModalCobroComun({ contenedor, total, clienteFijo, enviar, alTermin
       } else if (recibido < total) {
         msg.innerHTML = errBox("La cantidad recibida debe ser igual o mayor al total."); return;
       }
+      detenerCamaraCb();
       const btn = document.getElementById("cbConfirmar");
       btn.disabled = true; btn.style.opacity = "0.6";
       const { data, error } = await enviar({ recibido, aCredito, clienteId: cliente ? cliente.id : null });
